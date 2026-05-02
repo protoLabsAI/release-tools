@@ -21,7 +21,7 @@ inputs:
     required: false
     default: 'false'
   model:
-    description: 'Override the LLM model alias. Default: protolabs/fast.'
+    description: 'Override the LLM model alias. Default: protolabs/smart.'
     required: false
     default: ''
   base-url:

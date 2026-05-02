@@ -1,6 +1,6 @@
 {
   "name": "@protolabsai/release-tools",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Release-notes generator + GitHub Action for protoLabs repos. Rewrites raw git commits into themed release notes via the protoLabs LLM gateway and posts a Discord embed.",
   "type": "module",
   "license": "Apache-2.0",

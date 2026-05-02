@@ -22,7 +22,10 @@
  *   OPENAI_BASE_URL           Override the gateway base URL.
  *                             Default: https://api.proto-labs.ai/v1
  *   RELEASE_NOTES_MODEL       Override the model alias.
- *                             Default: protolabs/fast
+ *                             Default: protolabs/smart
+ *                             (avoid protolabs/fast — its raw <think>
+ *                             reasoning trace leaks through the gateway
+ *                             into Discord embeds.)
  *   DISCORD_RELEASE_WEBHOOK   (required with --post-discord) Discord webhook URL.
  *   RELEASE_NOTES_REPO        owner/name used to build the release link in
  *                             Discord embeds and the footer.
@@ -159,7 +162,9 @@ ${commitBlocks}`,
 
 const LLM_BASE_URL =
   process.env.OPENAI_BASE_URL || 'https://api.proto-labs.ai/v1';
-const LLM_MODEL = process.env.RELEASE_NOTES_MODEL || 'protolabs/fast';
+// protolabs/smart is the default because protolabs/fast leaks its raw
+// <think> reasoning trace through the gateway into the Discord embed.
+const LLM_MODEL = process.env.RELEASE_NOTES_MODEL || 'protolabs/smart';
 
 async function callLLM(userPrompt) {
   const apiKey = process.env.GATEWAY_API_KEY;
