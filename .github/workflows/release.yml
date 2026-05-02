@@ -34,11 +34,6 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org/'
 
-      # Trusted Publisher OIDC requires npm CLI ≥ 11.5.1. Node 20 ships
-      # with npm 10.x, so we upgrade explicitly.
-      - name: Upgrade npm
-        run: npm install --global npm@latest
-
       - name: Read version from package.json
         id: version
         run: |
@@ -85,14 +80,11 @@ jobs:
             -m "Release ${{ steps.version.outputs.tag }}"
           git push origin "${{ steps.version.outputs.tag }}"
 
-      # Trusted Publisher (OIDC) — no NODE_AUTH_TOKEN needed.
-      # The npm CLI exchanges this workflow's signed GitHub OIDC token
-      # for a short-lived publish token. Configure at npmjs.com →
-      # @protolabsai → Trusted Publishers (or per-package after first
-      # publish).
-      - name: Publish to npm (trusted publisher / OIDC)
+      - name: Publish to npm
         if: steps.version.outputs.npm_published != 'true'
         run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub release
         if: steps.version.outputs.tag_exists != 'true'

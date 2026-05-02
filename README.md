@@ -105,41 +105,13 @@ CI runs `node --check`, `--help`, and `--dry-run` smoke tests on every push.
 
 ## Releasing
 
-Bump `version` in `package.json` on `main` with a `chore: release vX.Y.Z`
-commit. The Release workflow:
+Bump `version` in `package.json` on `main`. The Release workflow:
 
 1. Tags the commit `vX.Y.Z`.
-2. Publishes to npm via OIDC trusted publishing (no long-lived `NPM_TOKEN`).
+2. Publishes to npm with provenance.
 3. Creates a GitHub release with auto-generated notes.
 
-Re-running the workflow on a commit whose tag already exists is a no-op,
-and the npm publish step is independently idempotent (skips if the
-version is already on the registry).
-
-### One-time setup: npm Trusted Publisher
-
-The Release workflow uses [npm Trusted Publishers][tp] — npm exchanges
-the workflow's signed GitHub OIDC ID token for a short-lived publish
-credential, so no long-lived `NPM_TOKEN` is needed. Setup:
-
-1. https://www.npmjs.com/settings/protolabsai/packages → `@protolabsai/release-tools`
-2. **Settings** → **Publishing access** → **Add trusted publisher**
-3. Pick **GitHub Actions** and fill in:
-   - Owner: `protoLabsAI`
-   - Repository: `release-tools`
-   - Workflow filename: `.github/workflows/release.yml`
-   - Environment: *(leave blank)*
-
-For the **first** publish of a brand-new package, the trusted publisher
-must be pre-configured at the org level (npmjs.com → `@protolabsai` org
-→ Trusted Publishers → Pre-register). Once the package exists, switch
-to per-package configuration.
-
-The workflow already has the required `permissions: id-token: write`
-and uses `npm publish --provenance`, which is what triggers the OIDC
-flow when no `NODE_AUTH_TOKEN` is set.
-
-[tp]: https://docs.npmjs.com/trusted-publishers
+Re-running the workflow on a commit whose tag already exists is a no-op.
 
 ## License
 
