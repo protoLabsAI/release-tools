@@ -1,13 +1,12 @@
 name: Release
 
-# Triggers when a `chore: release vX.Y.Z` commit lands on main, or on manual
-# dispatch. Tags the commit, publishes to npm, creates a GitHub release.
+# Tags + publishes on `chore: release vX.Y.Z` commits to main, or manual
+# dispatch. Fully idempotent: re-running on a commit whose tag already
+# exists and whose version is already on npm is a no-op.
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'package.json'
   workflow_dispatch:
 
 permissions:
@@ -19,7 +18,10 @@ jobs:
     name: Tag + publish
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.repository == 'protoLabsAI/release-tools'
+    if: >-
+      github.repository == 'protoLabsAI/release-tools' &&
+      (github.event_name == 'workflow_dispatch' ||
+       startsWith(github.event.head_commit.message, 'chore: release v'))
 
     steps:
       - uses: actions/checkout@v4
@@ -40,27 +42,37 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          # Idempotent: skip if the tag already exists. This catches re-runs of
-          # the same release commit (e.g. on workflow_dispatch).
+          # Idempotent guards. Tag and npm registry are independent — re-runs
+          # may need to do one without the other (e.g. tag succeeded last time
+          # but npm publish failed because NPM_TOKEN was missing).
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "already_tagged=true" >> "$GITHUB_OUTPUT"
-            echo "Tag $TAG already exists — skipping."
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag $TAG already exists — will skip the tag step."
           else
-            echo "already_tagged=false" >> "$GITHUB_OUTPUT"
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # `npm view` exits non-zero with a noisy E404 when the package or
+          # version doesn't exist; suppress so the conditional below stays
+          # readable.
+          if npm view "@protolabsai/release-tools@$VERSION" version \
+            >/dev/null 2>&1; then
+            echo "npm_published=true" >> "$GITHUB_OUTPUT"
+            echo "Version $VERSION already on npm — will skip publish."
+          else
+            echo "npm_published=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Install dependencies
-        if: steps.version.outputs.already_tagged != 'true'
-        run: npm ci || npm install
+        run: npm ci
 
       - name: Verify
-        if: steps.version.outputs.already_tagged != 'true'
         run: |
           node --check bin/rewrite-release-notes.mjs
           node bin/rewrite-release-notes.mjs --help > /dev/null
 
       - name: Tag
-        if: steps.version.outputs.already_tagged != 'true'
+        if: steps.version.outputs.tag_exists != 'true'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name  "github-actions[bot]"
@@ -69,13 +81,13 @@ jobs:
           git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Publish to npm
-        if: steps.version.outputs.already_tagged != 'true'
+        if: steps.version.outputs.npm_published != 'true'
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub release
-        if: steps.version.outputs.already_tagged != 'true'
+        if: steps.version.outputs.tag_exists != 'true'
         run: |
           gh release create "${{ steps.version.outputs.tag }}" \
             --title "${{ steps.version.outputs.tag }}" \
