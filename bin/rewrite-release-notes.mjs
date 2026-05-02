@@ -22,10 +22,13 @@
  *   OPENAI_BASE_URL           Override the gateway base URL.
  *                             Default: https://api.proto-labs.ai/v1
  *   RELEASE_NOTES_MODEL       Override the model alias.
- *                             Default: protolabs/smart
- *                             (avoid protolabs/fast — its raw <think>
- *                             reasoning trace leaks through the gateway
- *                             into Discord embeds.)
+ *                             Default: gpt-4o-mini
+ *                             Avoid the Qwen-based protolabs/fast and
+ *                             protolabs/smart aliases — both emit
+ *                             prose-style reasoning traces (e.g.
+ *                             "Here's a thinking process: ...") that
+ *                             the gateway does not strip, even with
+ *                             enable_thinking: false.
  *   DISCORD_RELEASE_WEBHOOK   (required with --post-discord) Discord webhook URL.
  *   RELEASE_NOTES_REPO        owner/name used to build the release link in
  *                             Discord embeds and the footer.
@@ -162,9 +165,13 @@ ${commitBlocks}`,
 
 const LLM_BASE_URL =
   process.env.OPENAI_BASE_URL || 'https://api.proto-labs.ai/v1';
-// protolabs/smart is the default because protolabs/fast leaks its raw
-// <think> reasoning trace through the gateway into the Discord embed.
-const LLM_MODEL = process.env.RELEASE_NOTES_MODEL || 'protolabs/smart';
+// gpt-4o-mini is the default because both Qwen-based aliases on our
+// gateway (protolabs/fast and protolabs/smart) emit narrative
+// "Here's a thinking process: ..." reasoning before the actual notes,
+// which leaks straight into the Discord embed. Live-tested against
+// the real release prompt; gpt-4o-mini and gpt-4.1-nano produce clean
+// section-formatted output.
+const LLM_MODEL = process.env.RELEASE_NOTES_MODEL || 'gpt-4o-mini';
 
 async function callLLM(userPrompt) {
   const apiKey = process.env.GATEWAY_API_KEY;
