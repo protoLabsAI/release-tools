@@ -41,7 +41,7 @@ inputs:
 
 # Secrets are read from the calling job's env via standard env-var passthrough:
 #   env:
-#     OPENAI_API_KEY:           ${{ secrets.OPENAI_API_KEY }}
+#     GATEWAY_API_KEY:           ${{ secrets.GATEWAY_API_KEY }}
 #     DISCORD_RELEASE_WEBHOOK:  ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
 
 runs:

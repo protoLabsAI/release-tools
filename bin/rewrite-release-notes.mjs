@@ -18,7 +18,7 @@
  *   --help            Show this help and exit.
  *
  * Environment:
- *   OPENAI_API_KEY            (required for non-dry-run) Bearer token for the gateway.
+ *   GATEWAY_API_KEY            (required for non-dry-run) Bearer token for the gateway.
  *   OPENAI_BASE_URL           Override the gateway base URL.
  *                             Default: https://api.proto-labs.ai/v1
  *   RELEASE_NOTES_MODEL       Override the model alias.
@@ -162,8 +162,8 @@ const LLM_BASE_URL =
 const LLM_MODEL = process.env.RELEASE_NOTES_MODEL || 'protolabs/fast';
 
 async function callLLM(userPrompt) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error('OPENAI_API_KEY is not set');
+  const apiKey = process.env.GATEWAY_API_KEY;
+  if (!apiKey) throw new Error('GATEWAY_API_KEY is not set');
 
   const res = await fetch(`${LLM_BASE_URL}/chat/completions`, {
     method: 'POST',

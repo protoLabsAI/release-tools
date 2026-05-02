@@ -24,7 +24,7 @@ without forking the logic.
     version: ${{ steps.version.outputs.tag }}
     previous-version: ${{ steps.version.outputs.prev_tag }}
   env:
-    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    GATEWAY_API_KEY: ${{ secrets.GATEWAY_API_KEY }}
     DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
 ```
 
@@ -43,7 +43,7 @@ without forking the logic.
 
 ### Required secrets
 
-- `OPENAI_API_KEY` — bearer token for the protoLabs LLM gateway
+- `GATEWAY_API_KEY` — bearer token for the protoLabs LLM gateway
 - `DISCORD_RELEASE_WEBHOOK` — Discord webhook URL for the release channel
 
 ## Use it as a CLI
@@ -64,7 +64,7 @@ semver tags from `git tag --sort=-v:refname`.
 ### Environment variables
 
 ```
-OPENAI_API_KEY            (required for non-dry-run) Bearer token for the gateway.
+GATEWAY_API_KEY            (required for non-dry-run) Bearer token for the gateway.
 OPENAI_BASE_URL           Override the gateway base URL.
                           Default: https://api.proto-labs.ai/v1
 RELEASE_NOTES_MODEL       Override the model alias.
