@@ -1,0 +1,41 @@
+{
+  "name": "@protolabsai/release-tools",
+  "version": "0.1.0",
+  "description": "Release-notes generator + GitHub Action for protoLabs repos. Rewrites raw git commits into themed release notes via the protoLabs LLM gateway and posts a Discord embed.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/protoLabsAI/release-tools#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/protoLabsAI/release-tools.git"
+  },
+  "bugs": {
+    "url": "https://github.com/protoLabsAI/release-tools/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "rewrite-release-notes": "./bin/rewrite-release-notes.mjs"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "action.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "smoke": "node bin/rewrite-release-notes.mjs --help || true",
+    "test": "node --test test/"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0"
+  }
+}

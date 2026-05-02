@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint + smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Syntax check
+        run: node --check bin/rewrite-release-notes.mjs
+
+      - name: Help works
+        run: node bin/rewrite-release-notes.mjs --help
+
+      # Smoke: dry-run renders without an LLM call. Uses the repo's own tags
+      # if any exist; otherwise creates synthetic ones so the script has
+      # something to diff.
+      - name: Dry-run smoke
+        run: |
+          if [ -z "$(git tag --list)" ]; then
+            git -c user.email=ci@example.com -c user.name=ci tag v0.0.1 HEAD
+            git commit --allow-empty -m "chore: smoke" --quiet \
+              -c user.email=ci@example.com -c user.name=ci
+            git -c user.email=ci@example.com -c user.name=ci tag v0.0.2 HEAD
+          fi
+          node bin/rewrite-release-notes.mjs --dry-run

@@ -1,0 +1,70 @@
+name: 'protoLabs Release Notes'
+description: 'Rewrite git commits into themed release notes via the protoLabs LLM gateway and post a Discord embed.'
+author: 'protoLabs'
+branding:
+  icon: 'edit-3'
+  color: 'purple'
+
+inputs:
+  version:
+    description: 'Tag or version being released (e.g. v0.34.0). Required.'
+    required: true
+  previous-version:
+    description: 'Previous tag for the diff range (e.g. v0.33.0). Required.'
+    required: true
+  post-discord:
+    description: 'Post the generated notes to DISCORD_RELEASE_WEBHOOK.'
+    required: false
+    default: 'true'
+  dry-run:
+    description: 'Print the prompt that would be sent and exit without calling the LLM or posting to Discord.'
+    required: false
+    default: 'false'
+  model:
+    description: 'Override the LLM model alias. Default: protolabs/fast.'
+    required: false
+    default: ''
+  base-url:
+    description: 'Override the LLM gateway base URL. Default: https://api.proto-labs.ai/v1.'
+    required: false
+    default: ''
+  repo:
+    description: |
+      owner/name used to build the GitHub release link in the Discord embed
+      and the default footer. Default: derived from the action context.
+    required: false
+    default: ''
+  footer:
+    description: 'Override the Discord embed footer text. Default: "protoLabs · <repo-name>".'
+    required: false
+    default: ''
+
+# Secrets are read from the calling job's env via standard env-var passthrough:
+#   env:
+#     OPENAI_API_KEY:           ${{ secrets.OPENAI_API_KEY }}
+#     DISCORD_RELEASE_WEBHOOK:  ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Run release-notes generator
+      shell: bash
+      env:
+        RELEASE_NOTES_MODEL: ${{ inputs.model }}
+        OPENAI_BASE_URL: ${{ inputs.base-url }}
+        RELEASE_NOTES_REPO: ${{ inputs.repo != '' && inputs.repo || github.repository }}
+        RELEASE_NOTES_FOOTER: ${{ inputs.footer }}
+      run: |
+        FLAGS=()
+        if [ "${{ inputs.dry-run }}" = "true" ]; then
+          FLAGS+=("--dry-run")
+        elif [ "${{ inputs.post-discord }}" = "true" ]; then
+          FLAGS+=("--post-discord")
+        fi
+        npx --yes -p '@protolabsai/release-tools@latest' rewrite-release-notes \
+          "${{ inputs.version }}" "${{ inputs.previous-version }}" "${FLAGS[@]}"

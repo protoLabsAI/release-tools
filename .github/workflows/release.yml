@@ -1,0 +1,84 @@
+name: Release
+
+# Triggers when a `chore: release vX.Y.Z` commit lands on main, or on manual
+# dispatch. Tags the commit, publishes to npm, creates a GitHub release.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write # for npm provenance
+
+jobs:
+  release:
+    name: Tag + publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.repository == 'protoLabsAI/release-tools'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org/'
+
+      - name: Read version from package.json
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # Idempotent: skip if the tag already exists. This catches re-runs of
+          # the same release commit (e.g. on workflow_dispatch).
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "already_tagged=true" >> "$GITHUB_OUTPUT"
+            echo "Tag $TAG already exists — skipping."
+          else
+            echo "already_tagged=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        if: steps.version.outputs.already_tagged != 'true'
+        run: npm ci || npm install
+
+      - name: Verify
+        if: steps.version.outputs.already_tagged != 'true'
+        run: |
+          node --check bin/rewrite-release-notes.mjs
+          node bin/rewrite-release-notes.mjs --help > /dev/null
+
+      - name: Tag
+        if: steps.version.outputs.already_tagged != 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name  "github-actions[bot]"
+          git tag -a "${{ steps.version.outputs.tag }}" \
+            -m "Release ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Publish to npm
+        if: steps.version.outputs.already_tagged != 'true'
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub release
+        if: steps.version.outputs.already_tagged != 'true'
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
