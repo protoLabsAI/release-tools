@@ -149,7 +149,7 @@ jobs:
 
 **macOS notarization (pick one path):**
 
-- App Store Connect API key (preferred): `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH`
+- App Store Connect API key (preferred): `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_BASE64` — store the `.p8` file as base64 (`base64 -i AuthKey_XYZ.p8 | pbcopy`); the workflow decodes it to disk and points `APPLE_API_KEY_PATH` at the file.
 - App-specific password (fallback): `APPLE_ID`, `APPLE_PASSWORD`
 
 **Windows code signing (SSL.com eSigner):**

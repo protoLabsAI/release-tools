@@ -133,6 +133,23 @@ jobs:
         run: ${{ inputs.pre-build-command }}
         shell: bash
 
+      # ─── macOS: write the App Store Connect API key to disk ──────────────
+      # Tauri's notarization step expects APPLE_API_KEY_PATH to be a
+      # filesystem path to the .p8 (not the base64 content). GitHub
+      # secrets are strings, so consumers store the file as
+      # APPLE_API_KEY_BASE64 and we decode it here.
+      - name: Prepare App Store Connect API key (.p8)
+        if: matrix.platform == 'macos' && env.APPLE_API_KEY_BASE64 != ''
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/appstoreconnect/private_keys"
+          KEY_PATH="$RUNNER_TEMP/appstoreconnect/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          echo "$APPLE_API_KEY_BASE64" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
       # ─── macOS: sign + notarize + updater-sign ────────────────────────────
       - name: Build (macOS, signed + notarized)
         if: matrix.platform == 'macos'
@@ -144,10 +161,11 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-          # Notarization — App Store Connect API key path (preferred)
+          # Notarization — App Store Connect API key path (preferred).
+          # APPLE_API_KEY_PATH is set above by the prepare step from the
+          # base64-encoded secret.
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
           # Notarization — app-specific password fallback
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
