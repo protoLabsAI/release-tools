@@ -30,16 +30,16 @@ without forking the logic.
 
 ### Inputs
 
-| Input              | Required | Default                                   | Description                                                                  |
-| ------------------ | -------- | ----------------------------------------- | ---------------------------------------------------------------------------- |
-| `version`          | yes      | —                                         | Tag being released (e.g. `v0.34.0`)                                          |
-| `previous-version` | yes      | —                                         | Previous tag for the diff range                                              |
-| `post-discord`     | no       | `'true'`                                  | Post the notes to `DISCORD_RELEASE_WEBHOOK`                                  |
-| `dry-run`          | no       | `'false'`                                 | Print the prompt and exit; no LLM call, no Discord post                      |
-| `model`            | no       | `protolabs/fast`                          | LLM model alias                                                              |
-| `base-url`         | no       | `https://api.proto-labs.ai/v1`            | Gateway base URL                                                             |
-| `repo`             | no       | `${{ github.repository }}`                | `owner/name` for the release URL + footer                                    |
-| `footer`           | no       | `protoLabs · <repo-name>`                 | Override Discord embed footer                                                |
+| Input              | Required | Default                        | Description                                             |
+| ------------------ | -------- | ------------------------------ | ------------------------------------------------------- |
+| `version`          | yes      | —                              | Tag being released (e.g. `v0.34.0`)                     |
+| `previous-version` | yes      | —                              | Previous tag for the diff range                         |
+| `post-discord`     | no       | `'true'`                       | Post the notes to `DISCORD_RELEASE_WEBHOOK`             |
+| `dry-run`          | no       | `'false'`                      | Print the prompt and exit; no LLM call, no Discord post |
+| `model`            | no       | `protolabs/fast`               | LLM model alias                                         |
+| `base-url`         | no       | `https://api.proto-labs.ai/v1` | Gateway base URL                                        |
+| `repo`             | no       | `${{ github.repository }}`     | `owner/name` for the release URL + footer               |
+| `footer`           | no       | `protoLabs · <repo-name>`      | Override Discord embed footer                           |
 
 ### Required secrets
 
@@ -93,12 +93,104 @@ RELEASE_NOTES_FOOTER      Override the Discord embed footer.
 If all commits are filtered out, the script exits without calling the LLM or
 posting to Discord — maintenance releases ("CI-only") don't blast the channel.
 
+## Tauri release workflow
+
+A reusable workflow for the **pre-release** half of the desktop pipeline:
+build, sign, notarize, and publish a Tauri 2 app across macOS (universal),
+Windows, and Linux. Same lifecycle as `rewrite-release-notes`, just upstream
+of it.
+
+### Use it
+
+```yaml
+# .github/workflows/build-desktop.yml in your repo
+name: Build Desktop App
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    uses: protoLabsAI/release-tools/.github/workflows/tauri-release.yml@v1
+    secrets: inherit
+    with:
+      project-path: apps/desktop
+      app-identifier: studio.protolabs.example
+      r2-bucket: example-desktop-releases
+      r2-public-base-url: https://dl.example.studio
+      pre-build-command: pnpm build # optional: workspace builds before tauri-action
+```
+
+### Inputs
+
+| Input                  | Required | Default                                 | Description                                                           |
+| ---------------------- | -------- | --------------------------------------- | --------------------------------------------------------------------- |
+| `project-path`         | yes      | —                                       | Directory containing `src-tauri/` (e.g. `apps/desktop`).              |
+| `app-identifier`       | yes      | —                                       | CFBundleIdentifier (e.g. `studio.protolabs.example`).                 |
+| `r2-bucket`            | yes      | —                                       | Cloudflare R2 bucket for binaries + `latest.json`.                    |
+| `r2-public-base-url`   | yes      | —                                       | Public-read base URL of the bucket. Embedded in the updater manifest. |
+| `node-version`         | no       | `'22'`                                  | Node.js version for the build.                                        |
+| `pnpm-version`         | no       | `'9.15.0'`                              | pnpm version. Set `''` to use npm.                                    |
+| `pre-build-command`    | no       | `''`                                    | Shell command run after install, before `tauri-action`.               |
+| `draft-github-release` | no       | `true`                                  | Create a draft Release with all artifacts attached.                   |
+| `release-notes-text`   | no       | `'See the GitHub Release for details.'` | Embedded in `latest.json` (Tauri updater shows this in the prompt).   |
+
+### Required secrets (pass via `secrets: inherit`)
+
+**macOS code signing:**
+
+- `APPLE_CERTIFICATE` — base64 of your Developer ID Application `.p12`
+- `APPLE_CERTIFICATE_PASSWORD` — `.p12` export password
+- `APPLE_SIGNING_IDENTITY` — `Developer ID Application: Your Name (TEAMID)`
+- `APPLE_TEAM_ID` — 10-char Team ID
+- `KEYCHAIN_PASSWORD` — any random string; used for the temporary CI keychain
+
+**macOS notarization (pick one path):**
+
+- App Store Connect API key (preferred): `APPLE_API_ISSUER`, `APPLE_API_KEY`, `APPLE_API_KEY_PATH`
+- App-specific password (fallback): `APPLE_ID`, `APPLE_PASSWORD`
+
+**Windows code signing (SSL.com eSigner):**
+
+- `ESIGNER_USERNAME`, `ESIGNER_PASSWORD`, `ESIGNER_CREDENTIAL_ID`, `ESIGNER_TOTP_SECRET`
+
+**Tauri updater signing:**
+
+- `TAURI_SIGNING_PRIVATE_KEY` — generated via `tauri signer generate`
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+
+**Cloudflare R2 publish:**
+
+- `CLOUDFLARE_API_TOKEN` — R2 Object Read & Write on your bucket
+- `R2_ACCOUNT_ID`
+
+### Updater manifest CLI
+
+The `publish` job calls `build-updater-manifest` (the second binary this
+package exports) to emit a `latest.json` for the in-app Tauri updater.
+You can also run it directly:
+
+```bash
+npx -p @protolabsai/release-tools build-updater-manifest \
+  --version 0.2.1 \
+  --dist ./artifacts \
+  --base-url https://dl.example.studio/0.2.1 \
+  --out ./latest.json
+```
+
+Walks the `--dist` directory, finds platform binaries + their `.sig` files,
+and writes a manifest in the exact shape Tauri's updater expects. Exits
+non-zero if any binary is missing its signature, so the `publish` job fails
+loudly when signing didn't run.
+
 ## Development
 
 ```bash
 npm install
 node bin/rewrite-release-notes.mjs --help
-node bin/rewrite-release-notes.mjs --dry-run
+node bin/build-updater-manifest.mjs --help
 ```
 
 CI runs `node --check`, `--help`, and `--dry-run` smoke tests on every push.
