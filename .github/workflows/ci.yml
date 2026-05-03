@@ -21,22 +21,26 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
           cache: npm
 
       - name: Install dependencies
         run: npm ci || npm install
 
       - name: Syntax check
-        run: node --check bin/rewrite-release-notes.mjs
+        run: |
+          node --check bin/rewrite-release-notes.mjs
+          node --check bin/build-updater-manifest.mjs
 
       - name: Help works
-        run: node bin/rewrite-release-notes.mjs --help
+        run: |
+          node bin/rewrite-release-notes.mjs --help
+          node bin/build-updater-manifest.mjs --help
 
       # Smoke: dry-run renders without an LLM call. Uses the repo's own tags
       # if any exist; otherwise creates synthetic ones so the script has
       # something to diff.
-      - name: Dry-run smoke
+      - name: Dry-run smoke (release-notes)
         run: |
           if [ -z "$(git tag --list)" ]; then
             git -c user.email=ci@example.com -c user.name=ci tag v0.0.1 HEAD
@@ -45,3 +49,37 @@ jobs:
             git -c user.email=ci@example.com -c user.name=ci tag v0.0.2 HEAD
           fi
           node bin/rewrite-release-notes.mjs --dry-run
+
+      # Smoke: build-updater-manifest produces a valid latest.json from a
+      # synthetic dist/ tree. Verifies the platform classifier + sig pairing
+      # without needing a real Tauri build.
+      - name: Smoke (build-updater-manifest)
+        run: |
+          mkdir -p smoke-dist/macos smoke-dist/nsis smoke-dist/appimage
+          echo "stub-mac"   > smoke-dist/macos/MyApp_0.0.1_universal.app.tar.gz
+          echo "sig-mac"    > smoke-dist/macos/MyApp_0.0.1_universal.app.tar.gz.sig
+          echo "stub-win"   > smoke-dist/nsis/MyApp_0.0.1_x64-setup.nsis.zip
+          echo "sig-win"    > smoke-dist/nsis/MyApp_0.0.1_x64-setup.nsis.zip.sig
+          echo "stub-linux" > smoke-dist/appimage/MyApp_0.0.1_amd64.AppImage.tar.gz
+          echo "sig-linux"  > smoke-dist/appimage/MyApp_0.0.1_amd64.AppImage.tar.gz.sig
+          node bin/build-updater-manifest.mjs \
+            --version 0.0.1 \
+            --dist smoke-dist \
+            --base-url https://example.test/0.0.1 \
+            --out smoke-latest.json
+          # Sanity: manifest must list all four platform keys (universal mac
+          # expands to two) and embed the sig contents.
+          node -e '
+            const m = require("./smoke-latest.json");
+            const keys = Object.keys(m.platforms).sort();
+            const expected = ["darwin-aarch64","darwin-x86_64","linux-x86_64","windows-x86_64"];
+            if (JSON.stringify(keys) !== JSON.stringify(expected)) {
+              console.error("Bad platform keys:", keys);
+              process.exit(1);
+            }
+            if (m.platforms["darwin-aarch64"].signature !== "sig-mac") {
+              console.error("Bad sig embed");
+              process.exit(1);
+            }
+            console.log("manifest smoke ok");
+          '

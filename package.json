@@ -16,14 +16,16 @@
     "node": ">=20"
   },
   "bin": {
-    "rewrite-release-notes": "./bin/rewrite-release-notes.mjs"
+    "rewrite-release-notes": "./bin/rewrite-release-notes.mjs",
+    "build-updater-manifest": "./bin/build-updater-manifest.mjs"
   },
   "files": [
     "bin/",
     "lib/",
     "action.yml",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    ".github/workflows/tauri-release.yml"
   ],
   "publishConfig": {
     "access": "public",
@@ -31,7 +33,7 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "smoke": "node bin/rewrite-release-notes.mjs --help || true",
+    "smoke": "node bin/rewrite-release-notes.mjs --help && node bin/build-updater-manifest.mjs --help",
     "test": "node --test test/"
   },
   "devDependencies": {

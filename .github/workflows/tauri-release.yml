@@ -1,0 +1,289 @@
+name: Tauri Release
+
+# Reusable workflow that builds, signs, notarizes, and publishes a Tauri 2
+# desktop app across macOS (universal), Windows, and Linux. Consumers call
+# it from their own thin `build-desktop.yml`:
+#
+#   jobs:
+#     desktop:
+#       uses: protoLabsAI/release-tools/.github/workflows/tauri-release.yml@v1
+#       secrets: inherit
+#       with:
+#         project-path: apps/desktop
+#         app-identifier: studio.protolabs.example
+#         r2-bucket: example-desktop-releases
+#         r2-public-base-url: https://dl.example.studio
+#         draft-github-release: true
+#
+# See the README's "Tauri release workflow" section for the full secret list.
+
+on:
+  workflow_call:
+    inputs:
+      project-path:
+        description: "Path to the Tauri project (the directory that contains src-tauri/)."
+        required: true
+        type: string
+      app-identifier:
+        description: "CFBundleIdentifier / Tauri identifier (e.g. studio.protolabs.example)."
+        required: true
+        type: string
+      r2-bucket:
+        description: "Cloudflare R2 bucket name where binaries + latest.json are uploaded."
+        required: true
+        type: string
+      r2-public-base-url:
+        description: "Public-read base URL for the bucket (e.g. https://dl.example.studio). Used in the updater manifest."
+        required: true
+        type: string
+      node-version:
+        description: "Node.js version for the build."
+        required: false
+        type: string
+        default: "22"
+      pnpm-version:
+        description: 'pnpm version. Set "" to use npm instead.'
+        required: false
+        type: string
+        default: "9.15.0"
+      pre-build-command:
+        description: "Optional shell command run after install, before tauri build (e.g. workspace builds)."
+        required: false
+        type: string
+        default: ""
+      draft-github-release:
+        description: "Create a draft GitHub Release with all artifacts attached."
+        required: false
+        type: boolean
+        default: true
+      release-notes-text:
+        description: "Notes embedded in latest.json (the GH Release body comes from action-gh-release)."
+        required: false
+        type: string
+        default: "See the GitHub Release for details."
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            platform: macos
+            args: --target universal-apple-darwin
+          - os: windows-latest
+            platform: windows
+            args: ""
+          - os: ubuntu-22.04
+            platform: linux
+            args: ""
+
+    runs-on: ${{ matrix.os }}
+
+    env:
+      # Opt cloudflare/wrangler-action and other node20-pinned actions into
+      # the Node 24 runner ahead of the 2026-06-02 forced upgrade.
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        if: inputs.pnpm-version != ''
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ inputs.pnpm-version }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ inputs.pnpm-version != '' && 'pnpm' || 'npm' }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add macOS Rust targets (universal)
+        if: matrix.platform == 'macos'
+        run: |
+          rustup target add aarch64-apple-darwin
+          rustup target add x86_64-apple-darwin
+
+      - name: Install Linux deps
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install dependencies (pnpm)
+        if: inputs.pnpm-version != ''
+        run: pnpm install --frozen-lockfile
+
+      - name: Install dependencies (npm)
+        if: inputs.pnpm-version == ''
+        run: npm ci
+
+      - name: Pre-build command
+        if: inputs.pre-build-command != ''
+        run: ${{ inputs.pre-build-command }}
+        shell: bash
+
+      # ─── macOS: write the App Store Connect API key to disk ──────────────
+      # Tauri's notarization step expects APPLE_API_KEY_PATH to be a
+      # filesystem path to the .p8 (not the base64 content). GitHub
+      # secrets are strings, so consumers store the file as
+      # APPLE_API_KEY_BASE64 and we decode it here.
+      - name: Prepare App Store Connect API key (.p8)
+        if: matrix.platform == 'macos' && env.APPLE_API_KEY_BASE64 != ''
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/appstoreconnect/private_keys"
+          KEY_PATH="$RUNNER_TEMP/appstoreconnect/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          echo "$APPLE_API_KEY_BASE64" | base64 --decode > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      # ─── macOS: sign + notarize + updater-sign ────────────────────────────
+      - name: Build (macOS, signed + notarized)
+        if: matrix.platform == 'macos'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # Code signing
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          # Notarization — App Store Connect API key path (preferred).
+          # APPLE_API_KEY_PATH is set above by the prepare step from the
+          # base64-encoded secret.
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          # Notarization — app-specific password fallback
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # Updater signing
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: ${{ inputs.project-path }}
+          args: ${{ matrix.args }}
+
+      # ─── Windows: SSL.com eSigner + updater-sign ──────────────────────────
+      - name: Build (Windows, signed via eSigner)
+        if: matrix.platform == 'windows'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          ESIGNER_USERNAME: ${{ secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ secrets.ESIGNER_PASSWORD }}
+          ESIGNER_CREDENTIAL_ID: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
+          ESIGNER_TOTP_SECRET: ${{ secrets.ESIGNER_TOTP_SECRET }}
+        with:
+          projectPath: ${{ inputs.project-path }}
+
+      # ─── Linux: AppImage, no signing ──────────────────────────────────────
+      - name: Build (Linux, AppImage)
+        if: matrix.platform == 'linux'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: ${{ inputs.project-path }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: tauri-${{ matrix.platform }}
+          path: |
+            ${{ inputs.project-path }}/src-tauri/target/release/bundle/dmg/*.dmg
+            ${{ inputs.project-path }}/src-tauri/target/release/bundle/macos/*.app.tar.gz
+            ${{ inputs.project-path }}/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
+            ${{ inputs.project-path }}/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            ${{ inputs.project-path }}/src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz*
+            ${{ inputs.project-path }}/src-tauri/target/release/bundle/nsis/*.exe
+            ${{ inputs.project-path }}/src-tauri/target/release/bundle/nsis/*-setup.nsis.zip
+            ${{ inputs.project-path }}/src-tauri/target/release/bundle/nsis/*-setup.nsis.zip.sig
+            ${{ inputs.project-path }}/src-tauri/target/release/bundle/appimage/*.AppImage
+            ${{ inputs.project-path }}/src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz
+            ${{ inputs.project-path }}/src-tauri/target/release/bundle/appimage/*.AppImage.tar.gz.sig
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Compute version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate updater manifest (latest.json)
+        run: |
+          npx --yes -p '@protolabsai/release-tools@latest' build-updater-manifest \
+            --version "${{ steps.version.outputs.version }}" \
+            --dist dist \
+            --base-url "${{ inputs.r2-public-base-url }}/${{ steps.version.outputs.version }}" \
+            --notes "${{ inputs.release-notes-text }}" \
+            --out latest.json
+
+      - name: Upload binaries to R2 (versioned prefix)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.R2_ACCOUNT_ID }}
+          command: |
+            for file in dist/*; do
+              name=$(basename "$file")
+              wrangler r2 object put \
+                "${{ inputs.r2-bucket }}/${{ steps.version.outputs.version }}/$name" \
+                --file "$file" \
+                --remote
+            done
+
+      - name: Upload updater manifest to R2 (latest.json, no-cache)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.R2_ACCOUNT_ID }}
+          command: |
+            wrangler r2 object put \
+              "${{ inputs.r2-bucket }}/latest.json" \
+              --file latest.json \
+              --content-type 'application/json' \
+              --cache-control 'no-cache, no-store, must-revalidate' \
+              --remote
+
+      - name: Create draft GitHub Release
+        if: inputs.draft-github-release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/**/*
+          draft: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
