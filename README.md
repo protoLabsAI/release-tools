@@ -36,7 +36,7 @@ without forking the logic.
 | `previous-version` | yes      | —                                         | Previous tag for the diff range                                              |
 | `post-discord`     | no       | `'true'`                                  | Post the notes to `DISCORD_RELEASE_WEBHOOK`                                  |
 | `dry-run`          | no       | `'false'`                                 | Print the prompt and exit; no LLM call, no Discord post                      |
-| `model`            | no       | `gpt-4o-mini`                          | LLM model alias                                                              |
+| `model`            | no       | `protolabs/fast`                          | LLM model alias                                                              |
 | `base-url`         | no       | `https://api.proto-labs.ai/v1`            | Gateway base URL                                                             |
 | `repo`             | no       | `${{ github.repository }}`                | `owner/name` for the release URL + footer                                    |
 | `footer`           | no       | `protoLabs · <repo-name>`                 | Override Discord embed footer                                                |
@@ -68,7 +68,7 @@ GATEWAY_API_KEY            (required for non-dry-run) Bearer token for the gatew
 OPENAI_BASE_URL           Override the gateway base URL.
                           Default: https://api.proto-labs.ai/v1
 RELEASE_NOTES_MODEL       Override the model alias.
-                          Default: gpt-4o-mini
+                          Default: protolabs/fast
 DISCORD_RELEASE_WEBHOOK   (required with --post-discord) Discord webhook URL.
 RELEASE_NOTES_REPO        owner/name used for the release URL + footer.
                           Default: derived from `git remote get-url origin`.

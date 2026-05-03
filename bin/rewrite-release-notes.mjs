@@ -22,13 +22,7 @@
  *   OPENAI_BASE_URL           Override the gateway base URL.
  *                             Default: https://api.proto-labs.ai/v1
  *   RELEASE_NOTES_MODEL       Override the model alias.
- *                             Default: gpt-4o-mini
- *                             Avoid the Qwen-based protolabs/fast and
- *                             protolabs/smart aliases — both emit
- *                             prose-style reasoning traces (e.g.
- *                             "Here's a thinking process: ...") that
- *                             the gateway does not strip, even with
- *                             enable_thinking: false.
+ *                             Default: protolabs/fast
  *   DISCORD_RELEASE_WEBHOOK   (required with --post-discord) Discord webhook URL.
  *   RELEASE_NOTES_REPO        owner/name used to build the release link in
  *                             Discord embeds and the footer.
@@ -165,13 +159,13 @@ ${commitBlocks}`,
 
 const LLM_BASE_URL =
   process.env.OPENAI_BASE_URL || 'https://api.proto-labs.ai/v1';
-// gpt-4o-mini is the default because both Qwen-based aliases on our
-// gateway (protolabs/fast and protolabs/smart) emit narrative
-// "Here's a thinking process: ..." reasoning before the actual notes,
-// which leaks straight into the Discord embed. Live-tested against
-// the real release prompt; gpt-4o-mini and gpt-4.1-nano produce clean
-// section-formatted output.
-const LLM_MODEL = process.env.RELEASE_NOTES_MODEL || 'gpt-4o-mini';
+// protolabs/fast is the default. The gateway separates the model's
+// reasoning trace into `reasoning_content` and emits the polished
+// answer in `content` — but only if `max_tokens` is high enough for
+// the model to finish reasoning AND produce the final answer in the
+// same call. Capping max_tokens too low truncates mid-reasoning and
+// leaks unfinished thinking into `content`.
+const LLM_MODEL = process.env.RELEASE_NOTES_MODEL || 'protolabs/fast';
 
 async function callLLM(userPrompt) {
   const apiKey = process.env.GATEWAY_API_KEY;
@@ -185,7 +179,10 @@ async function callLLM(userPrompt) {
     },
     body: JSON.stringify({
       model: LLM_MODEL,
-      max_tokens: 1024,
+      // Set high enough to fit reasoning + the final answer; capping
+      // too low truncates mid-reasoning and leaks unfinished thinking
+      // into `content` (see comment on LLM_MODEL above).
+      max_tokens: 8192,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },

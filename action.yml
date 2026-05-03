@@ -21,7 +21,7 @@ inputs:
     required: false
     default: 'false'
   model:
-    description: 'Override the LLM model alias. Default: gpt-4o-mini.'
+    description: 'Override the LLM model alias. Default: protolabs/fast.'
     required: false
     default: ''
   base-url:
