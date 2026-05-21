@@ -30,6 +30,8 @@
  *   CODE_REVIEW_MODEL                   Default model override.
  */
 
+import path from 'node:path';
+
 import {
   CodeReviewError,
   DEFAULT_REVIEW_MODEL,
@@ -164,6 +166,8 @@ function runLimit(flags) {
 }
 
 function resultPath(repoRoot, stateDir, fileName) {
-  if (stateDir.startsWith('/')) return `${stateDir}/${fileName}`;
-  return `${repoRoot.replace(/\/$/, '')}/${stateDir}/${fileName}`;
+  return path.join(
+    path.isAbsolute(stateDir) ? stateDir : path.join(repoRoot, stateDir),
+    fileName,
+  );
 }
