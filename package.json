@@ -35,7 +35,7 @@
   "scripts": {
     "lint": "eslint .",
     "smoke": "node bin/rewrite-release-notes.mjs --help && node bin/build-updater-manifest.mjs --help && node bin/review-code.mjs --help",
-    "test": "node --test \"test/**/*.mjs\""
+    "test": "node --test test/*.mjs"
   },
   "devDependencies": {
     "eslint": "^9.0.0",
