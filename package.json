@@ -17,7 +17,8 @@
   },
   "bin": {
     "rewrite-release-notes": "./bin/rewrite-release-notes.mjs",
-    "build-updater-manifest": "./bin/build-updater-manifest.mjs"
+    "build-updater-manifest": "./bin/build-updater-manifest.mjs",
+    "review-code": "./bin/review-code.mjs"
   },
   "files": [
     "bin/",
@@ -33,8 +34,8 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "smoke": "node bin/rewrite-release-notes.mjs --help && node bin/build-updater-manifest.mjs --help",
-    "test": "node --test test/"
+    "smoke": "node bin/rewrite-release-notes.mjs --help && node bin/build-updater-manifest.mjs --help && node bin/review-code.mjs --help",
+    "test": "node --test \"test/**/*.mjs\""
   },
   "devDependencies": {
     "eslint": "^9.0.0",

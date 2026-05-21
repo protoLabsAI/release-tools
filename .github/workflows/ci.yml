@@ -31,11 +31,14 @@ jobs:
         run: |
           node --check bin/rewrite-release-notes.mjs
           node --check bin/build-updater-manifest.mjs
+          node --check bin/review-code.mjs
+          node --check lib/code-review.mjs
 
       - name: Help works
         run: |
           node bin/rewrite-release-notes.mjs --help
           node bin/build-updater-manifest.mjs --help
+          node bin/review-code.mjs --help
 
       # Smoke: dry-run renders without an LLM call. Uses the repo's own tags
       # if any exist; otherwise creates synthetic ones so the script has
@@ -83,3 +86,6 @@ jobs:
             }
             console.log("manifest smoke ok");
           '
+
+      - name: Test reusable review tool
+        run: npm test

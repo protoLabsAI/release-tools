@@ -185,12 +185,65 @@ and writes a manifest in the exact shape Tauri's updater expects. Exits
 non-zero if any binary is missing its signature, so the `publish` job fails
 loudly when signing didn't run.
 
+## Model-backed code review
+
+`review-code` is a reusable, Clawpatch-inspired review harness for protoLabs
+repos. It maps a repository into bounded feature records, asks an
+OpenAI-compatible gateway for strict JSON findings, persists those findings
+locally, and emits a Markdown report. It does not edit code.
+
+```bash
+# In the repo you want reviewed:
+npx -p @protolabsai/release-tools review-code init
+npx -p @protolabsai/release-tools review-code map
+GATEWAY_API_KEY=... OPENAI_BASE_URL=https://api.proto-labs.ai/v1 \
+  npx -p @protolabsai/release-tools review-code run --model protolabs/fast --limit 1
+npx -p @protolabsai/release-tools review-code report
+```
+
+Review state is written to `.release-tools-review/`. Add that directory to a
+repo's `.gitignore` if you use the tool regularly. The default model is
+`protolabs/smart`; override it with `--model` or `CODE_REVIEW_MODEL` when a
+gateway key is routed to another review model such as Minimax.
+
+For better feature boundaries, add a repo-local `review-code.config.json`:
+
+```json
+{
+  "features": [
+    {
+      "feature_id": "engine_core",
+      "name": "Engine core",
+      "description": "Deterministic resolver and replay-critical state.",
+      "owned_globs": ["src/engine/**/*.js"],
+      "context_globs": ["docs/engine/**/*.md"],
+      "test_globs": ["test/engine/**/*.test.js"]
+    }
+  ]
+}
+```
+
+Useful commands:
+
+```bash
+review-code status
+review-code run --feature-id engine_core
+review-code run --all
+review-code report --output ./review-report.md
+```
+
+The harness keeps prompts bounded, skips external symlinks, rejects findings
+outside the reviewed file allowlist, and preserves existing triage fields when
+a finding is regenerated.
+
 ## Development
 
 ```bash
 npm install
 node bin/rewrite-release-notes.mjs --help
 node bin/build-updater-manifest.mjs --help
+node bin/review-code.mjs --help
+npm test
 ```
 
 CI runs `node --check`, `--help`, and `--dry-run` smoke tests on every push.
