@@ -236,6 +236,37 @@ The harness keeps prompts bounded, skips external symlinks, rejects findings
 outside the reviewed file allowlist, and preserves existing triage fields when
 a finding is regenerated.
 
+## Branch protection defaults
+
+`apply-branch-protection` applies the protoLabs recommended branch protection
+ruleset to a repo. Two opinions, both off-by-default in GitHub's UI:
+
+1. **`required_status_checks` is for correctness, not advisory signals.** Drop
+   LLM review bots (CodeRabbit, protoquinn[bot], etc.) from required checks.
+   Bots gate via `reviewDecision` — silence shouldn't block merges.
+2. **`strict_required_status_checks_policy: false`** for fast-moving repos with
+   linear PR stacks. Strict mode forces an N×CI-cycle drag on stacked work.
+
+```bash
+# Dry-run against the current repo's main branch
+npx @protolabsai/release-tools apply-branch-protection
+
+# Apply the defaults to a specific repo
+npx @protolabsai/release-tools apply-branch-protection \
+  --repo protoLabsAI/myrepo \
+  --branch main \
+  --apply
+
+# Custom required checks (Rust monorepo)
+npx @protolabsai/release-tools apply-branch-protection \
+  --required-checks cargo-test,cargo-clippy,cargo-fmt \
+  --apply
+```
+
+See [`docs/branch-protection-defaults.md`](./docs/branch-protection-defaults.md)
+for the full rationale, the "when not to use the defaults" list, and the flag
+reference.
+
 ## Development
 
 ```bash
@@ -243,6 +274,7 @@ npm install
 node bin/rewrite-release-notes.mjs --help
 node bin/build-updater-manifest.mjs --help
 node bin/review-code.mjs --help
+node bin/apply-branch-protection.mjs --help
 npm test
 ```
 
