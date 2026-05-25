@@ -7,3 +7,10 @@ node_modules/
 coverage/
 dist/
 *.tgz
+
+# protoLabs workspace-config standard
+.beads/beads.db
+.worktrees/
+.automaker/features/
+.automaker/checkpoints/
+.automaker/trajectory/
