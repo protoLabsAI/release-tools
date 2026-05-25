@@ -33,12 +33,15 @@ jobs:
           node --check bin/build-updater-manifest.mjs
           node --check bin/apply-branch-protection.mjs
           node --check lib/branch-protection.mjs
+          node --check bin/verify-workspace-config.mjs
+          node --check lib/workspace-config.mjs
 
       - name: Help works
         run: |
           node bin/rewrite-release-notes.mjs --help
           node bin/build-updater-manifest.mjs --help
           node bin/apply-branch-protection.mjs --help
+          node bin/verify-workspace-config.mjs --help
 
       # Smoke: dry-run renders without an LLM call. Uses the repo's own tags
       # if any exist; otherwise creates synthetic ones so the script has
