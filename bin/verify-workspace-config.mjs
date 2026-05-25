@@ -31,7 +31,7 @@
  * Environment: GH_TOKEN / GITHUB_TOKEN honored by `gh` for remote mode.
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -98,7 +98,7 @@ try {
 
 // ── manifest builders ────────────────────────────────────────────────────
 
-/** Build a manifest from a local checkout (working tree). */
+/** Build a manifest from a local checkout. */
 function localManifest(root) {
   const giPath = join(root, '.gitignore');
   const gitignore = existsSync(giPath) ? readFileSync(giPath, 'utf8') : '';
@@ -113,8 +113,23 @@ function localManifest(root) {
     }
   }
 
+  // `hasFile` means COMMITTED, not present-on-disk. A gitignored-but-present
+  // file (e.g. the live .beads/beads.db SQLite) is correct and must not trip
+  // `beads-db-not-committed`. Use the git index, not existsSync. Fall back to
+  // existsSync only when git isn't available (not a checkout).
+  let tracked = null;
+  try {
+    const out = execFileSync('git', ['-C', root, 'ls-files', '-z'], {
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    tracked = new Set(out.split('\0').filter(Boolean));
+  } catch {
+    tracked = null;
+  }
+
   return {
-    hasFile: (p) => existsSync(join(root, p)),
+    hasFile: (p) => (tracked ? tracked.has(p) : existsSync(join(root, p))),
     gitignore,
     workflowRunners,
   };
