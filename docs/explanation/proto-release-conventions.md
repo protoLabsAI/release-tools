@@ -50,8 +50,9 @@ self-hosted `namespace-profile-protolabs-linux` profile. The standard flags any
 `ubuntu/windows/macos-*` `runs-on:` so minutes don't leak silently. The
 exception is work that genuinely needs a hosted runner — cross-platform binary
 builds (Tauri's macOS/Windows targets can't build on a Linux runner), npm
-provenance — which is why an exception mechanism is on the roadmap rather than a
-blanket ban.
+provenance — which is why the rule supports an inline
+`# workspace-config: allow-hosted-runner <reason>` exception rather than a
+blanket ban — sanctioned, visible, and per-workflow.
 
 ## `.automaker/settings.json` is committed per repo
 
