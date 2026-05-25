@@ -6,6 +6,7 @@ import {
   evaluateStandard,
   gitignoreMatches,
   isGitHubHostedRunner,
+  listRunnerExceptions,
   planScaffold,
   SCAFFOLD_FILES,
   REQUIRED_GITIGNORE,
@@ -221,4 +222,45 @@ test('scaffold output makes a bare repo pass evaluateStandard (sans runner rule)
   const r = evaluateStandard(m);
   assert.equal(r.ok, true);
   assert.equal(r.errorCount, 0);
+});
+
+// ── runner exception annotation ──────────────────────────────────────────
+
+test('annotated hosted runner is allowed (not a violation) and surfaced as exception', () => {
+  const m = {
+    ...goodManifest(),
+    workflowRunners: [
+      { file: 'ci.yml', runsOn: 'namespace-profile-protolabs-linux' },
+      {
+        file: 'tauri-release.yml',
+        runsOn: 'macos-14',
+        allowed: true,
+        reason: 'cross-platform build',
+      },
+    ],
+  };
+  const r = evaluateStandard(m);
+  assert.equal(r.violations.some((x) => x.id === 'workflows-use-owned-runners'), false);
+  assert.equal(r.ok, true);
+  const exc = listRunnerExceptions(m);
+  assert.equal(exc.length, 1);
+  assert.deepEqual(exc[0], { file: 'tauri-release.yml', runsOn: 'macos-14', reason: 'cross-platform build' });
+});
+
+test('unannotated hosted runner is still a violation even when another is annotated', () => {
+  const m = {
+    ...goodManifest(),
+    workflowRunners: [
+      { file: 'ci.yml', runsOn: 'ubuntu-latest' }, // not annotated → error
+      { file: 'tauri.yml', runsOn: 'macos-14', allowed: true, reason: 'mac build' },
+    ],
+  };
+  const r = evaluateStandard(m);
+  const v = r.violations.find((x) => x.id === 'workflows-use-owned-runners');
+  assert.ok(v);
+  assert.deepEqual(v.detail, ['ci.yml: runs-on ubuntu-latest']); // only the unannotated one
+});
+
+test('listRunnerExceptions returns [] when no annotated hosted runners', () => {
+  assert.deepEqual(listRunnerExceptions(goodManifest()), []);
 });

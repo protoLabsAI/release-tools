@@ -33,6 +33,25 @@ hosted label (`ubuntu-*`, `windows-*`, `macos-*`), listing the offending
 workflow files. Expression-based `runs-on` (`${{ matrix.os }}`) is not
 statically flagged — matrix-hosted runners need a manual look.
 
+#### Sanctioned hosted-runner exceptions
+
+Some hosted-runner uses are legitimate and can't move to the namespace profile
+— cross-platform binary builds (macOS/Windows Tauri targets), npm publish with
+provenance. Annotate them so they pass without disabling the rule repo-wide:
+
+```yaml
+jobs:
+  bundle:
+    # workspace-config: allow-hosted-runner cross-platform binary build
+    runs-on: macos-14
+  notes:
+    runs-on: ubuntu-latest  # workspace-config: allow-hosted-runner npm provenance
+```
+
+The annotation is honored on the `runs-on:` line (trailing comment) or the line
+directly above it. Exceptions still appear in the audit output (and `--json`
+`runnerExceptions`) — a sanctioned exception is visible, not silent.
+
 ### Why `.automaker/settings.json` is committed per-repo
 
 The per-repo settings file pins the agent baseline — gateway model tiers
