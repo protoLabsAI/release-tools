@@ -81,6 +81,7 @@ jobs:
             platform: linux
             args: ""
 
+    # workspace-config: allow-hosted-runner cross-platform Tauri build requires hosted runner
     runs-on: ${{ matrix.os }}
 
     env:
@@ -220,7 +221,7 @@ jobs:
 
   publish:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-protolabs-linux
     if: startsWith(github.ref, 'refs/tags/v')
 
     env:

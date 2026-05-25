@@ -16,6 +16,7 @@ permissions:
 jobs:
   release:
     name: Tag + publish
+    # workspace-config: allow-hosted-runner npm publish --provenance requires hosted OIDC
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: >-
@@ -31,8 +32,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org/'
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org/"
 
       - name: Read version from package.json
         id: version
