@@ -6,6 +6,9 @@ import {
   evaluateStandard,
   gitignoreMatches,
   isGitHubHostedRunner,
+  planScaffold,
+  SCAFFOLD_FILES,
+  REQUIRED_GITIGNORE,
 } from '../lib/workspace-config.mjs';
 
 /** Build a manifest from a list of present files + gitignore text. */
@@ -160,4 +163,62 @@ test('all workflows on owned runners → no runner violation', () => {
 test('no workflows at all → runner rule passes (nothing to flag)', () => {
   const r = evaluateStandard(goodManifest()); // no workflowRunners field
   assert.equal(r.violations.some((x) => x.id === 'workflows-use-owned-runners'), false);
+});
+
+// ── scaffolder (planScaffold) ────────────────────────────────────────────
+
+test('planScaffold on a bare repo creates all files + all gitignore lines', () => {
+  const m = { hasFile: () => false, gitignore: '' };
+  const plan = planScaffold(m);
+  assert.equal(plan.create.length, SCAFFOLD_FILES.length);
+  assert.deepEqual(
+    plan.create.map((f) => f.path).sort(),
+    ['.automaker/settings.json', '.beads/issues.jsonl']
+  );
+  assert.deepEqual(plan.gitignoreAdditions, REQUIRED_GITIGNORE);
+});
+
+test('planScaffold is idempotent — fully-scaffolded repo needs nothing', () => {
+  const present = new Set(SCAFFOLD_FILES.map((f) => f.path));
+  const m = {
+    hasFile: (p) => present.has(p),
+    gitignore: REQUIRED_GITIGNORE.join('\n'),
+  };
+  const plan = planScaffold(m);
+  assert.equal(plan.create.length, 0);
+  assert.equal(plan.gitignoreAdditions.length, 0);
+});
+
+test('planScaffold only fills gaps — partial repo', () => {
+  // Has settings.json + ignores beads.db, but missing issues.jsonl + worktrees ignore.
+  const m = {
+    hasFile: (p) => p === '.automaker/settings.json',
+    gitignore: '.beads/beads.db\n',
+  };
+  const plan = planScaffold(m);
+  assert.deepEqual(
+    plan.create.map((f) => f.path),
+    ['.beads/issues.jsonl']
+  );
+  assert.ok(plan.gitignoreAdditions.includes('.worktrees/'));
+  assert.ok(!plan.gitignoreAdditions.includes('.beads/beads.db')); // already present
+});
+
+test('scaffolded .automaker/settings.json is valid JSON with version 1', () => {
+  const settings = SCAFFOLD_FILES.find((f) => f.path === '.automaker/settings.json');
+  const parsed = JSON.parse(settings.content);
+  assert.equal(parsed.version, 1);
+});
+
+test('scaffold output makes a bare repo pass evaluateStandard (sans runner rule)', () => {
+  // Simulate applying the scaffold to a bare repo, then re-evaluate.
+  const created = new Set(SCAFFOLD_FILES.map((f) => f.path));
+  const m = {
+    hasFile: (p) => created.has(p),
+    gitignore: REQUIRED_GITIGNORE.join('\n'),
+    // no workflows → runner rule passes
+  };
+  const r = evaluateStandard(m);
+  assert.equal(r.ok, true);
+  assert.equal(r.errorCount, 0);
 });

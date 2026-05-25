@@ -19,7 +19,8 @@
     "rewrite-release-notes": "./bin/rewrite-release-notes.mjs",
     "build-updater-manifest": "./bin/build-updater-manifest.mjs",
     "apply-branch-protection": "./bin/apply-branch-protection.mjs",
-    "verify-workspace-config": "./bin/verify-workspace-config.mjs"
+    "verify-workspace-config": "./bin/verify-workspace-config.mjs",
+    "init-workspace-config": "./bin/init-workspace-config.mjs"
   },
   "files": [
     "bin/",
@@ -35,7 +36,7 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "smoke": "node bin/rewrite-release-notes.mjs --help && node bin/build-updater-manifest.mjs --help && node bin/apply-branch-protection.mjs --help && node bin/verify-workspace-config.mjs --help",
+    "smoke": "node bin/rewrite-release-notes.mjs --help && node bin/build-updater-manifest.mjs --help && node bin/apply-branch-protection.mjs --help && node bin/verify-workspace-config.mjs --help && node bin/init-workspace-config.mjs --help",
     "test": "node --test test/*.mjs"
   },
   "devDependencies": {
