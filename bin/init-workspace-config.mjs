@@ -43,8 +43,13 @@ try {
   const manifest = { hasFile: (p) => existsSync(join(root, p)), gitignore };
 
   const plan = planScaffold(manifest);
+  const removals = plan.gitignoreRemovals ?? [];
 
-  if (plan.create.length === 0 && plan.gitignoreAdditions.length === 0) {
+  if (
+    plan.create.length === 0 &&
+    plan.gitignoreAdditions.length === 0 &&
+    removals.length === 0
+  ) {
     console.log('workspace-config: already scaffolded — nothing to do.');
     process.exit(0);
   }
@@ -60,16 +65,30 @@ try {
     }
   }
 
-  if (plan.gitignoreAdditions.length > 0) {
-    console.log(`  ~ .gitignore += ${plan.gitignoreAdditions.join(', ')}`);
-    if (!args.dryRun) {
+  // .gitignore: strip shadowing blanket lines, then append the required ones.
+  if (removals.length > 0 || plan.gitignoreAdditions.length > 0) {
+    let gi = gitignore;
+
+    if (removals.length > 0) {
+      console.log(`  ~ .gitignore -= ${removals.join(', ')} (blanket → selective)`);
+      const removeSet = new Set(removals);
+      gi = gi
+        .split('\n')
+        .filter((l) => !removeSet.has(l.trim()))
+        .join('\n');
+    }
+
+    if (plan.gitignoreAdditions.length > 0) {
+      console.log(`  ~ .gitignore += ${plan.gitignoreAdditions.join(', ')}`);
       const block =
-        (gitignore && !gitignore.endsWith('\n') ? '\n' : '') +
+        (gi && !gi.endsWith('\n') ? '\n' : '') +
         '\n# protoLabs workspace-config standard\n' +
         plan.gitignoreAdditions.join('\n') +
         '\n';
-      writeFileSync(giPath, gitignore + block);
+      gi = gi + block;
     }
+
+    if (!args.dryRun) writeFileSync(giPath, gi);
   }
 
   console.log('');
