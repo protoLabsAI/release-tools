@@ -1,6 +1,6 @@
 {
   "name": "@protolabsai/release-tools",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Release-notes generator + GitHub Action for protoLabs repos. Rewrites raw git commits into themed release notes via the protoLabs LLM gateway and posts a Discord embed.",
   "type": "module",
   "license": "Apache-2.0",
@@ -18,7 +18,8 @@
   "bin": {
     "rewrite-release-notes": "./bin/rewrite-release-notes.mjs",
     "build-updater-manifest": "./bin/build-updater-manifest.mjs",
-    "apply-branch-protection": "./bin/apply-branch-protection.mjs"
+    "apply-branch-protection": "./bin/apply-branch-protection.mjs",
+    "verify-workspace-config": "./bin/verify-workspace-config.mjs"
   },
   "files": [
     "bin/",
@@ -34,7 +35,7 @@
   },
   "scripts": {
     "lint": "eslint .",
-    "smoke": "node bin/rewrite-release-notes.mjs --help && node bin/build-updater-manifest.mjs --help && node bin/apply-branch-protection.mjs --help",
+    "smoke": "node bin/rewrite-release-notes.mjs --help && node bin/build-updater-manifest.mjs --help && node bin/apply-branch-protection.mjs --help && node bin/verify-workspace-config.mjs --help",
     "test": "node --test test/*.mjs"
   },
   "devDependencies": {

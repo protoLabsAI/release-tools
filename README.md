@@ -216,6 +216,25 @@ See [`docs/branch-protection-defaults.md`](./docs/branch-protection-defaults.md)
 for the full rationale, the "when not to use the defaults" list, and the flag
 reference.
 
+## Workspace config standard
+
+`verify-workspace-config` checks a repo against the protoLabs baseline for
+`.beads/` (issue tracker) and `.automaker/` (board) config that every
+fleet-watched repo should carry — plus a self-hosted-runner check so no repo
+silently burns GitHub-hosted minutes.
+
+```bash
+# Local — in a repo's CI on PR (exits non-zero on error-severity drift)
+npx @protolabsai/release-tools verify-workspace-config
+
+# Remote — central fleet audit of any watched repo (no clone)
+npx @protolabsai/release-tools verify-workspace-config --repo protoLabsAI/protoMaker
+npx @protolabsai/release-tools verify-workspace-config --repo protoLabsAI/protoCLI --json --warn-only
+```
+
+See [`docs/workspace-config-standard.md`](./docs/workspace-config-standard.md)
+for the full rule table and remediation steps.
+
 ## Development
 
 ```bash
@@ -223,6 +242,7 @@ npm install
 node bin/rewrite-release-notes.mjs --help
 node bin/build-updater-manifest.mjs --help
 node bin/apply-branch-protection.mjs --help
+node bin/verify-workspace-config.mjs --help
 npm test
 ```
 

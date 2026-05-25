@@ -1,0 +1,163 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  WORKSPACE_STANDARD,
+  evaluateStandard,
+  gitignoreMatches,
+  isGitHubHostedRunner,
+} from '../lib/workspace-config.mjs';
+
+/** Build a manifest from a list of present files + gitignore text. */
+function manifest(files, gitignore = '') {
+  const set = new Set(files);
+  return { hasFile: (p) => set.has(p), gitignore };
+}
+
+/** A fully-conformant workspace. */
+function goodManifest() {
+  return manifest(
+    ['.beads/issues.jsonl', '.automaker/settings.json'],
+    [
+      '.beads/beads.db',
+      '.worktrees/',
+      '.automaker/features/',
+      '.automaker/checkpoints/',
+      '.automaker/trajectory/',
+    ].join('\n')
+  );
+}
+
+test('gitignoreMatches ignores comments and blank lines', () => {
+  const gi = '# a comment\n\n.worktrees/\n';
+  assert.equal(gitignoreMatches(gi, ['.worktrees/']), true);
+  assert.equal(gitignoreMatches('# .worktrees/', ['.worktrees/']), false); // commented out
+  assert.equal(gitignoreMatches('', ['.worktrees/']), false);
+});
+
+test('a fully-conformant workspace passes with zero violations', () => {
+  const r = evaluateStandard(goodManifest());
+  assert.equal(r.ok, true);
+  assert.equal(r.errorCount, 0);
+  assert.equal(r.warnCount, 0);
+  assert.equal(r.violations.length, 0);
+  assert.equal(r.passed.length, WORKSPACE_STANDARD.length);
+});
+
+test('missing .beads/issues.jsonl is an error', () => {
+  const m = manifest(['.automaker/settings.json'], '.beads/beads.db\n.worktrees/');
+  const r = evaluateStandard(m);
+  assert.equal(r.ok, false);
+  assert.ok(r.violations.some((v) => v.id === 'beads-issues-jsonl' && v.severity === 'error'));
+});
+
+test('missing .automaker/settings.json is an error (committed baseline required)', () => {
+  const m = manifest(['.beads/issues.jsonl'], '.beads/beads.db\n.worktrees/');
+  const r = evaluateStandard(m);
+  assert.equal(r.ok, false);
+  assert.ok(
+    r.violations.some((v) => v.id === 'automaker-settings-committed' && v.severity === 'error')
+  );
+});
+
+test('beads.db not gitignored is an error', () => {
+  const m = manifest(['.beads/issues.jsonl', '.automaker/settings.json'], '.worktrees/');
+  const r = evaluateStandard(m);
+  assert.ok(r.violations.some((v) => v.id === 'beads-db-gitignored'));
+});
+
+test('beads.db committed is an error even if also gitignored', () => {
+  const m = manifest(
+    ['.beads/issues.jsonl', '.automaker/settings.json', '.beads/beads.db'],
+    '.beads/beads.db\n.worktrees/\n.automaker/features/\n.automaker/checkpoints/\n.automaker/trajectory/'
+  );
+  const r = evaluateStandard(m);
+  assert.ok(r.violations.some((v) => v.id === 'beads-db-not-committed' && v.severity === 'error'));
+});
+
+test('.worktrees not gitignored is an error', () => {
+  const m = manifest(['.beads/issues.jsonl', '.automaker/settings.json'], '.beads/beads.db');
+  const r = evaluateStandard(m);
+  assert.ok(r.violations.some((v) => v.id === 'worktrees-gitignored'));
+});
+
+test('missing automaker transient ignores is a WARN, not an error', () => {
+  // Everything required present + ignored, but no transient-dir ignores.
+  const m = manifest(
+    ['.beads/issues.jsonl', '.automaker/settings.json'],
+    '.beads/beads.db\n.worktrees/'
+  );
+  const r = evaluateStandard(m);
+  assert.equal(r.ok, true, 'warn-only violation should not fail the standard');
+  assert.equal(r.errorCount, 0);
+  assert.equal(r.warnCount, 1);
+  assert.ok(
+    r.violations.some((v) => v.id === 'automaker-transient-gitignored' && v.severity === 'warn')
+  );
+});
+
+test('a bare repo (nothing) reports all errors + the warn', () => {
+  const r = evaluateStandard(manifest([], ''));
+  // 4 errors: issues.jsonl, beads-db-gitignored, automaker-settings, worktrees
+  // (beads-db-not-committed passes — it's absent — so it is NOT a violation)
+  assert.equal(r.errorCount, 4);
+  assert.equal(r.warnCount, 1);
+  assert.equal(r.ok, false);
+  assert.ok(r.passed.includes('beads-db-not-committed'));
+});
+
+test('each rule carries a fix hint', () => {
+  for (const rule of WORKSPACE_STANDARD) {
+    assert.ok(typeof rule.fix === 'string' && rule.fix.length > 0, `${rule.id} missing fix`);
+    assert.ok(['error', 'warn'].includes(rule.severity), `${rule.id} bad severity`);
+  }
+});
+
+// ── self-hosted runner rule ──────────────────────────────────────────────
+
+test('isGitHubHostedRunner flags hosted labels, allows owned/self-hosted', () => {
+  for (const hosted of ['ubuntu-latest', 'ubuntu-24.04', 'windows-latest', 'macos-14', 'macOS-latest']) {
+    assert.equal(isGitHubHostedRunner(hosted), true, `${hosted} should be hosted`);
+  }
+  for (const owned of ['namespace-profile-protolabs-linux', 'self-hosted', 'protolabs-arm']) {
+    assert.equal(isGitHubHostedRunner(owned), false, `${owned} should NOT be hosted`);
+  }
+});
+
+test('isGitHubHostedRunner does not flag expression-based runs-on', () => {
+  assert.equal(isGitHubHostedRunner('${{ matrix.os }}'), false);
+  assert.equal(isGitHubHostedRunner('${{ vars.RUNNER }}'), false);
+});
+
+test('a workflow on a GitHub-hosted runner is an error, with offending files in detail', () => {
+  const m = {
+    ...goodManifest(),
+    workflowRunners: [
+      { file: 'ci.yml', runsOn: 'ubuntu-latest' },
+      { file: 'release.yml', runsOn: 'namespace-profile-protolabs-linux' },
+    ],
+  };
+  const r = evaluateStandard(m);
+  const v = r.violations.find((x) => x.id === 'workflows-use-owned-runners');
+  assert.ok(v, 'expected runner violation');
+  assert.equal(v.severity, 'error');
+  assert.deepEqual(v.detail, ['ci.yml: runs-on ubuntu-latest']);
+});
+
+test('all workflows on owned runners → no runner violation', () => {
+  const m = {
+    ...goodManifest(),
+    workflowRunners: [
+      { file: 'ci.yml', runsOn: 'namespace-profile-protolabs-linux' },
+      { file: 'release.yml', runsOn: 'namespace-profile-protolabs-linux' },
+    ],
+  };
+  const r = evaluateStandard(m);
+  assert.equal(r.violations.some((x) => x.id === 'workflows-use-owned-runners'), false);
+  assert.equal(r.ok, true);
+});
+
+test('no workflows at all → runner rule passes (nothing to flag)', () => {
+  const r = evaluateStandard(goodManifest()); // no workflowRunners field
+  assert.equal(r.violations.some((x) => x.id === 'workflows-use-owned-runners'), false);
+});
