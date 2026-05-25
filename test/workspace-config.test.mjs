@@ -264,3 +264,36 @@ test('unannotated hosted runner is still a violation even when another is annota
 test('listRunnerExceptions returns [] when no annotated hosted runners', () => {
   assert.deepEqual(listRunnerExceptions(goodManifest()), []);
 });
+
+// ── planScaffold narrows blanket ignores (#21) ───────────────────────────
+
+test('planScaffold flags a blanket .automaker/ ignore for removal + re-adds selective', () => {
+  const m = {
+    hasFile: (p) => p === '.automaker/settings.json' || p === '.beads/issues.jsonl',
+    gitignore: '.automaker/\n.worktrees/\n.beads/beads.db\n',
+  };
+  const plan = planScaffold(m);
+  assert.deepEqual(plan.gitignoreRemovals, ['.automaker/']);
+  // transient lines must be (re)added since the blanket coverage is going away
+  assert.ok(plan.gitignoreAdditions.includes('.automaker/features/'));
+});
+
+test('planScaffold narrows a blanket .beads/ ignore too', () => {
+  const m = {
+    hasFile: (p) => p === '.automaker/settings.json' || p === '.beads/issues.jsonl',
+    gitignore: '.beads/\n.worktrees/\n.automaker/features/\n.automaker/checkpoints/\n.automaker/trajectory/\n',
+  };
+  const plan = planScaffold(m);
+  assert.ok(plan.gitignoreRemovals.includes('.beads/'));
+  assert.ok(plan.gitignoreAdditions.includes('.beads/beads.db'));
+});
+
+test('planScaffold leaves selective .automaker/features/ alone (no false removal)', () => {
+  const m = {
+    hasFile: () => true,
+    gitignore: REQUIRED_GITIGNORE.join('\n'),
+  };
+  const plan = planScaffold(m);
+  assert.deepEqual(plan.gitignoreRemovals, []);
+  assert.deepEqual(plan.gitignoreAdditions, []);
+});
