@@ -94,6 +94,25 @@ errorCount, warnCount, ok }`) for the fleet check to aggregate.
 Exit codes: `0` conformant (or `--warn-only`), `1` error-severity violations,
 `2` usage/IO error.
 
+## Scaffolding (init-workspace-config)
+
+`init-workspace-config` writes the missing baseline files and patches
+`.gitignore` to bring a repo to standard. Idempotent — re-running only fills
+gaps. It does NOT edit workflow runner labels (that's a per-workflow change;
+`verify-workspace-config` flags those).
+
+```bash
+# preview
+npx @protolabsai/release-tools init-workspace-config --dry-run
+# apply, then commit
+npx @protolabsai/release-tools init-workspace-config
+git add .beads/issues.jsonl .automaker/settings.json .gitignore
+```
+
+It creates an empty `.beads/issues.jsonl`, a minimal `.automaker/settings.json`
+(`{ "version": 1 }` — teams layer workflow/model overrides on top), and the
+required `.gitignore` lines.
+
 ## Bringing a repo into conformance
 
 ```bash
