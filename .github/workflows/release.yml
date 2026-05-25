@@ -44,7 +44,7 @@ jobs:
 
           # Idempotent guards. Tag and npm registry are independent — re-runs
           # may need to do one without the other (e.g. tag succeeded last time
-          # but npm publish failed because NPM_TOKEN was missing).
+          # but the npm OIDC exchange transiently failed).
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "tag_exists=true" >> "$GITHUB_OUTPUT"
             echo "Tag $TAG already exists — will skip the tag step."
@@ -81,10 +81,18 @@ jobs:
           git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Publish to npm
+        # Trusted Publishing: npm exchanges the GitHub OIDC token issued by
+        # `id-token: write` (job level) for a short-lived publish credential.
+        # The same OIDC token continues to drive --provenance.
+        #
+        # Prerequisite (one-time, npm UI):
+        #   npmjs.com/package/@protolabsai/release-tools/access →
+        #     Trusted Publishers → Add → GitHub Actions
+        #     repository:        protoLabsAI/release-tools
+        #     workflow filename: release.yml
+        #     environment:       (none)
         if: steps.version.outputs.npm_published != 'true'
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub release
         if: steps.version.outputs.tag_exists != 'true'
