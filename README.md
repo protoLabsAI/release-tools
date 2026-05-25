@@ -6,6 +6,8 @@ embed. Ships as both an npm CLI and a composite GitHub Action.
 
 [![npm](https://img.shields.io/npm/v/@protolabsai/release-tools.svg)](https://www.npmjs.com/package/@protolabsai/release-tools)
 
+📚 **[Full documentation](./docs/index.md)** — organized by [Diátaxis](https://diataxis.fr/): tutorials, how-to guides, reference, and explanation. New here? Start with [Onboard a repo into the fleet](./docs/tutorials/onboard-a-repo.md).
+
 ## Why
 
 Each protoLabs repo wants the same release ritual: tag → generate notes → post
@@ -212,7 +214,7 @@ npx @protolabsai/release-tools apply-branch-protection \
   --apply
 ```
 
-See [`docs/branch-protection-defaults.md`](./docs/branch-protection-defaults.md)
+See [`docs/branch-protection-defaults.md`](./docs/reference/branch-protection-defaults.md)
 for the full rationale, the "when not to use the defaults" list, and the flag
 reference.
 
@@ -232,7 +234,7 @@ npx @protolabsai/release-tools verify-workspace-config --repo protoLabsAI/protoM
 npx @protolabsai/release-tools verify-workspace-config --repo protoLabsAI/protoCLI --json --warn-only
 ```
 
-See [`docs/workspace-config-standard.md`](./docs/workspace-config-standard.md)
+See [`docs/workspace-config-standard.md`](./docs/reference/workspace-config-standard.md)
 for the full rule table and remediation steps.
 
 ## Development
