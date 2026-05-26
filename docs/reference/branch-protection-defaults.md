@@ -5,7 +5,7 @@ A protoLabs convention for branch protection rulesets on GitHub. Codified as
 command. Pairs with the existing release-notes generator — same package, same
 install, same versioning.
 
-## The two rules
+## The rules
 
 ### 1. `required_status_checks` is for correctness, not advisory signals
 
@@ -43,6 +43,21 @@ stale branches that would break main usually fail their own CI before merge.
 Keep strict `true` on repos with **5+ contributors or frequent parallel
 feature branches** where semantic conflicts between stale branches are a real
 risk.
+
+### 3. `required_review_thread_resolution: true` — review comments must be resolved
+
+Every ecosystem repo requires that **PR review threads are resolved before
+merge** (the `pull_request` rule's `required_review_thread_resolution`). A
+review comment from Quinn, CodeRabbit, or a human can't be silently merged
+past — the thread must be addressed and resolved first. This is the gate that
+makes review feedback actually count (CI-pass alone is not sufficient to merge).
+
+It deliberately does **not** force `required_approving_review_count` — org
+policy is that bots gate via review decision / thread resolution, not a forced
+approval count (which a bot identity often can't satisfy). Existing PR-rule
+params (approval counts, code-owner requirements) are preserved; only thread
+resolution is turned on. Opt out per-repo with `--no-thread-resolution` if a
+repo genuinely shouldn't gate on it.
 
 ## What this PRESERVES
 

@@ -158,6 +158,41 @@ test('applyRecommendedDefaults creates the rule if missing', () => {
   assert.deepEqual(rule.parameters.required_status_checks.map((c) => c.context), ['build', 'test']);
 });
 
+test('applyRecommendedDefaults requires review-thread resolution (adds pull_request rule)', () => {
+  const { ruleset: next, diff } = applyRecommendedDefaults({ rules: [] }, {
+    requiredChecks: ['build', 'test'],
+  });
+  const pr = next.rules.find((r) => r.type === 'pull_request');
+  assert.ok(pr, 'expected pull_request rule to be added');
+  assert.equal(pr.parameters.required_review_thread_resolution, true);
+  // Does NOT force approvals — org policy is bots gate via review decision.
+  assert.equal(pr.parameters.required_approving_review_count, 0);
+  assert.equal(diff.threadResolutionBefore, null);
+  assert.equal(diff.threadResolutionAfter, true);
+});
+
+test('applyRecommendedDefaults flips thread resolution on but preserves existing PR params', () => {
+  const ruleset = {
+    rules: [
+      {
+        type: 'pull_request',
+        parameters: { required_approving_review_count: 2, required_review_thread_resolution: false },
+      },
+    ],
+  };
+  const { ruleset: next } = applyRecommendedDefaults(ruleset, {});
+  const pr = next.rules.find((r) => r.type === 'pull_request');
+  assert.equal(pr.parameters.required_review_thread_resolution, true, 'flips to required');
+  assert.equal(pr.parameters.required_approving_review_count, 2, 'preserves existing count');
+});
+
+test('applyRecommendedDefaults can opt out of thread resolution', () => {
+  const { ruleset: next } = applyRecommendedDefaults({ rules: [] }, {
+    requireThreadResolution: false,
+  });
+  assert.ok(!next.rules.find((r) => r.type === 'pull_request'), 'no pull_request rule added when opted out');
+});
+
 test('stripReadOnlyFields removes id and other server-only fields', () => {
   const before = {
     id: 12552305,

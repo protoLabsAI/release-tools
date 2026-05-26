@@ -102,6 +102,7 @@ async function main(opts) {
     requiredChecks,
     strict: opts.strict,
     excludeBots: !opts.allowBotChecks,
+    requireThreadResolution: !opts.noThreadResolution,
     extraBotPatterns,
   });
 
@@ -122,6 +123,11 @@ async function main(opts) {
   }
   if (diff.strictBefore !== diff.strictAfter) {
     console.log(`  strict_required_status_checks_policy: ${diff.strictBefore} → ${diff.strictAfter}`);
+  }
+  if (diff.threadResolutionBefore !== diff.threadResolutionAfter) {
+    console.log(
+      `  required_review_thread_resolution: ${diff.threadResolutionBefore} → ${diff.threadResolutionAfter}`
+    );
   }
   console.log('');
 
@@ -178,6 +184,9 @@ function parseArgs(argv) {
         break;
       case '--allow-bot-checks':
         opts.allowBotChecks = true;
+        break;
+      case '--no-thread-resolution':
+        opts.noThreadResolution = true;
         break;
       case '--extra-bot-patterns':
         opts.extraBotPatterns = next()
