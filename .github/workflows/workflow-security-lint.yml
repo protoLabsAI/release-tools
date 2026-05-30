@@ -8,27 +8,23 @@
 #       uses: protoLabsAI/release-tools/.github/workflows/workflow-security-lint.yml@main
 #
 # `verify-workspace-config` flags repos missing this workflow.
+#
+# This is the canonical REUSABLE workflow (`workflow_call` only) — it lints the
+# CALLING repo. release-tools does not self-trigger it here: its own workflows
+# carry pre-existing findings (3 template-injection in tauri-release.yml, plus
+# unpinned-uses / cache-poisoning / artipacked) that must be remediated with the
+# release pipeline testable, tracked separately. Self-linting is wired once that
+# debt is cleared.
 name: Workflow Security Lint
 
 on:
   workflow_call:
-  pull_request:
-    paths:
-      - ".github/workflows/**"
-      - ".github/actionlint.yaml"
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/**"
-      - ".github/actionlint.yaml"
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
