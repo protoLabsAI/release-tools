@@ -237,6 +237,60 @@ npx @protolabsai/release-tools verify-workspace-config --repo protoLabsAI/protoC
 See [`docs/workspace-config-standard.md`](./docs/reference/workspace-config-standard.md)
 for the full rule table and remediation steps.
 
+### Use it as a GitHub Action
+
+For PR-level async-parallel review (runs alongside CodeRabbit, posts findings
+as a sticky PR comment), use the bundled composite action:
+
+```yaml
+# .github/workflows/code-review.yml in your repo
+name: Code Review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: protoLabsAI/release-tools/.github/actions/code-review@main
+        with:
+          gateway-api-key: ${{ secrets.GATEWAY_API_KEY }}
+          gateway-base-url: ${{ secrets.GATEWAY_BASE_URL }}
+```
+
+#### Action inputs
+
+| Input               | Required | Default                                   | Description                                                |
+| ------------------- | -------- | ----------------------------------------- | ---------------------------------------------------------- |
+| `gateway-api-key`   | yes      | —                                         | Bearer token for the gateway. Passed as `OPENAI_API_KEY`.  |
+| `gateway-base-url`  | no       | `https://api.proto-labs.ai`               | Gateway base URL without `/v1` — appended automatically.   |
+| `model`             | no       | `protolabs/smart` (review-code default)   | Override the gateway model alias.                          |
+| `timeout-ms`        | no       | `300000`                                  | Per-request timeout for the LLM gateway in milliseconds.   |
+| `pr-number`         | no       | `${{ github.event.pull_request.number }}` | PR number to comment on; skip the sticky comment if empty. |
+| `github-token`      | no       | `${{ github.token }}`                     | Token for posting the sticky PR comment.                   |
+| `release-tools-ref` | no       | `main`                                    | release-tools ref to install (branch, tag, or commit).     |
+
+#### Behavior
+
+- Non-blocking — review failures or timeouts do not gate the PR (`continue-on-error: true` on the review step).
+- Posts a **single sticky PR comment** tagged with the `code-review:findings` marker; re-runs `PATCH` the existing comment rather than stacking new ones.
+- Appends the markdown report to `$GITHUB_STEP_SUMMARY` so findings are visible in the Actions UI even when no PR comment is posted (e.g., manual `workflow_dispatch`).
+
+#### Required secrets
+
+- `GATEWAY_API_KEY` — same secret used by the release-notes action.
+- `GATEWAY_BASE_URL` — only required if your gateway isn't at the default `https://api.proto-labs.ai`.
+
 ## Development
 
 ```bash
