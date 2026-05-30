@@ -12,15 +12,16 @@ Enforced by `verify-workspace-config` (this package).
 
 ## The standard
 
-| Rule                             | Severity | Requirement                                                                                                                             |
-| -------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `beads-issues-jsonl`             | error    | `.beads/issues.jsonl` is **committed** (git-friendly export, merges cleanly)                                                            |
-| `beads-db-gitignored`            | error    | `.beads/beads.db` is **gitignored** (rebuildable SQLite)                                                                                |
-| `beads-db-not-committed`         | error    | `.beads/beads.db` is **not committed**                                                                                                  |
-| `automaker-settings-committed`   | error    | `.automaker/settings.json` is **committed** (versioned per-repo agent baseline)                                                         |
-| `worktrees-gitignored`           | error    | `.worktrees/` is **gitignored** (agent worktrees never committed)                                                                       |
-| `automaker-transient-gitignored` | warn     | `.automaker/features/`, `checkpoints/`, `trajectory/` gitignored; `settings.json` + `context/` stay committed                           |
-| `workflows-use-owned-runners`    | error    | every `runs-on:` is an org-owned runner (`namespace-profile-protolabs-linux`), never GitHub-hosted (`ubuntu-*`, `windows-*`, `macos-*`) |
+| Rule                             | Severity | Requirement                                                                                                                                             |
+| -------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `beads-issues-jsonl`             | error    | `.beads/issues.jsonl` is **committed** (git-friendly export, merges cleanly)                                                                            |
+| `beads-db-gitignored`            | error    | `.beads/beads.db` is **gitignored** (rebuildable SQLite)                                                                                                |
+| `beads-db-not-committed`         | error    | `.beads/beads.db` is **not committed**                                                                                                                  |
+| `automaker-settings-committed`   | error    | `.automaker/settings.json` is **committed** (versioned per-repo agent baseline)                                                                         |
+| `worktrees-gitignored`           | error    | `.worktrees/` is **gitignored** (agent worktrees never committed)                                                                                       |
+| `automaker-transient-gitignored` | warn     | `.automaker/features/`, `checkpoints/`, `trajectory/` gitignored; `settings.json` + `context/` stay committed                                           |
+| `workflows-use-owned-runners`    | error    | every `runs-on:` is an org-owned runner (`namespace-profile-protolabs-linux`), never GitHub-hosted (`ubuntu-*`, `windows-*`, `macos-*`)                 |
+| `workflow-security-lint`         | warn     | `.github/workflows/workflow-security-lint.yml` exists — zizmor + actionlint run in CI (CWE-94 script-injection, unpinned actions, token over-privilege) |
 
 **Errors gate CI. Warnings are advisory.**
 
@@ -45,12 +46,40 @@ jobs:
     # workspace-config: allow-hosted-runner cross-platform binary build
     runs-on: macos-14
   notes:
-    runs-on: ubuntu-latest  # workspace-config: allow-hosted-runner npm provenance
+    runs-on: ubuntu-latest # workspace-config: allow-hosted-runner npm provenance
 ```
 
 The annotation is honored on the `runs-on:` line (trailing comment) or the line
 directly above it. Exceptions still appear in the audit output (and `--json`
 `runnerExceptions`) — a sanctioned exception is visible, not silent.
+
+### Why a workflow security lint is a fleet standard
+
+A real CWE-94 script-injection hole shipped in a deploy workflow once —
+`--commit-message="${{ github.event.head_commit.message }}"` interpolated
+straight into a `run:` block holding a Cloudflare token (protoMaker#3812).
+Untrusted text (commit messages, PR titles/bodies, branch names, issue text)
+in `run:` blocks, unpinned third-party actions, and over-broad `GITHUB_TOKEN`
+scopes are a whole class of supply-chain risk that no per-repo review reliably
+catches. The fix is automated detection on every repo:
+
+- **zizmor** (`--min-severity=medium`) — script-injection, unpinned actions,
+  `persist-credentials` artipacking, token over-privilege.
+- **actionlint** — workflow syntax, expression typing, and shellcheck on
+  `run:` blocks.
+
+Adopt it by copying the scaffolded `.github/workflows/workflow-security-lint.yml`
+(created by `init-workspace-config`), or call the canonical reusable workflow so
+the tool versions stay centralized:
+
+```yaml
+jobs:
+  security-lint:
+    uses: protoLabsAI/release-tools/.github/workflows/workflow-security-lint.yml@main
+```
+
+`warn` for now so the fleet can roll out without breaking CI on day one;
+tighten to `error` once every managed repo carries it.
 
 ### Why `.automaker/settings.json` is committed per-repo
 

@@ -10,6 +10,7 @@ import {
   planScaffold,
   SCAFFOLD_FILES,
   REQUIRED_GITIGNORE,
+  WORKFLOW_SECURITY_LINT_PATH,
 } from '../lib/workspace-config.mjs';
 
 /** Build a manifest from a list of present files + gitignore text. */
@@ -21,7 +22,7 @@ function manifest(files, gitignore = '') {
 /** A fully-conformant workspace. */
 function goodManifest() {
   return manifest(
-    ['.beads/issues.jsonl', '.automaker/settings.json'],
+    ['.beads/issues.jsonl', '.automaker/settings.json', WORKFLOW_SECURITY_LINT_PATH],
     [
       '.beads/beads.db',
       '.worktrees/',
@@ -94,9 +95,13 @@ test('missing automaker transient ignores is a WARN, not an error', () => {
   const r = evaluateStandard(m);
   assert.equal(r.ok, true, 'warn-only violation should not fail the standard');
   assert.equal(r.errorCount, 0);
-  assert.equal(r.warnCount, 1);
+  // two warns: missing transient ignores + missing workflow-security-lint
+  assert.equal(r.warnCount, 2);
   assert.ok(
     r.violations.some((v) => v.id === 'automaker-transient-gitignored' && v.severity === 'warn')
+  );
+  assert.ok(
+    r.violations.some((v) => v.id === 'workflow-security-lint' && v.severity === 'warn')
   );
 });
 
@@ -105,7 +110,8 @@ test('a bare repo (nothing) reports all errors + the warn', () => {
   // 4 errors: issues.jsonl, beads-db-gitignored, automaker-settings, worktrees
   // (beads-db-not-committed passes — it's absent — so it is NOT a violation)
   assert.equal(r.errorCount, 4);
-  assert.equal(r.warnCount, 1);
+  // 2 warns: automaker-transient-gitignored + workflow-security-lint
+  assert.equal(r.warnCount, 2);
   assert.equal(r.ok, false);
   assert.ok(r.passed.includes('beads-db-not-committed'));
 });
@@ -166,16 +172,36 @@ test('no workflows at all → runner rule passes (nothing to flag)', () => {
   assert.equal(r.violations.some((x) => x.id === 'workflows-use-owned-runners'), false);
 });
 
+test('missing workflow-security-lint is a warn (not an error)', () => {
+  // good manifest minus the security-lint workflow
+  const m = manifest(
+    ['.beads/issues.jsonl', '.automaker/settings.json'],
+    ['.beads/beads.db', '.worktrees/', '.automaker/features/'].join('\n')
+  );
+  const r = evaluateStandard(m);
+  const v = r.violations.find((x) => x.id === 'workflow-security-lint');
+  assert.ok(v, 'expected a workflow-security-lint violation');
+  assert.equal(v.severity, 'warn');
+  // a warn alone does not fail the gate
+  assert.equal(r.violations.filter((x) => x.severity === 'error' && x.id === 'workflow-security-lint').length, 0);
+});
+
+test('present workflow-security-lint satisfies the rule', () => {
+  const r = evaluateStandard(goodManifest());
+  assert.ok(r.passed.includes('workflow-security-lint'));
+});
+
 // ── scaffolder (planScaffold) ────────────────────────────────────────────
 
 test('planScaffold on a bare repo creates all files + all gitignore lines', () => {
   const m = { hasFile: () => false, gitignore: '' };
   const plan = planScaffold(m);
   assert.equal(plan.create.length, SCAFFOLD_FILES.length);
-  assert.deepEqual(
-    plan.create.map((f) => f.path).sort(),
-    ['.automaker/settings.json', '.beads/issues.jsonl']
-  );
+  assert.deepEqual(plan.create.map((f) => f.path).sort(), [
+    '.automaker/settings.json',
+    '.beads/issues.jsonl',
+    WORKFLOW_SECURITY_LINT_PATH,
+  ]);
   assert.deepEqual(plan.gitignoreAdditions, REQUIRED_GITIGNORE);
 });
 
@@ -199,7 +225,7 @@ test('planScaffold only fills gaps — partial repo', () => {
   const plan = planScaffold(m);
   assert.deepEqual(
     plan.create.map((f) => f.path),
-    ['.beads/issues.jsonl']
+    ['.beads/issues.jsonl', WORKFLOW_SECURITY_LINT_PATH]
   );
   assert.ok(plan.gitignoreAdditions.includes('.worktrees/'));
   assert.ok(!plan.gitignoreAdditions.includes('.beads/beads.db')); // already present
