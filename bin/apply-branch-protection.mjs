@@ -11,9 +11,13 @@
  *   - `strict_required_status_checks_policy`: false (don't force PRs to be up-to-date with base)
  *   - Drop any context that looks like an LLM review bot (CodeRabbit, protoquinn[bot], etc.)
  *     from required_status_checks. Bots gate via reviewDecision, not status checks.
+ *   - On an EXISTING pull_request rule: `required_approving_review_count` → 0 and
+ *     `required_review_thread_resolution` → false. Approvals are advisory; CHANGES_REQUESTED
+ *     is the explicit veto. The fleet automation identity authors every PR and can't approve
+ *     its own, so any positive count deadlocks at REVIEW_REQUIRED. Never creates a PR rule.
  *
- * Driven by the rationale in release-tools#6 (strict policy) and
- * release-tools#10 (bot-checks exclusion).
+ * Driven by the rationale in release-tools#6 (strict policy),
+ * release-tools#10 (bot-checks exclusion), and protoMaker#3985 (review-count stance).
  *
  * Usage:
  *   apply-branch-protection [flags]
@@ -25,6 +29,9 @@
  *                             matching --branch by name (e.g. "Protect main") and uses the first hit.
  *   --required-checks <list>  Comma-separated context names. Default: build,test,checks,ci-complete.
  *   --strict                  Enable strict_required_status_checks_policy. Default: off (loose).
+ *   --required-reviews <n>    required_approving_review_count on an existing pull_request rule.
+ *                             Default: 0 (approvals advisory; CHANGES_REQUESTED is the veto).
+ *   --require-thread-resolution  Set required_review_thread_resolution true. Default: off.
  *   --allow-bot-checks        Keep contexts whose name looks like an LLM-review bot. Default: drop them.
  *   --extra-bot-patterns <l>  Comma-separated extra case-insensitive substrings to treat as bot.
  *   --apply                   PUT the patched ruleset. Without this flag, prints the diff and exits.
@@ -103,6 +110,8 @@ async function main(opts) {
     strict: opts.strict,
     excludeBots: !opts.allowBotChecks,
     extraBotPatterns,
+    requiredReviews: opts.requiredReviews,
+    requireThreadResolution: opts.requireThreadResolution,
   });
 
   console.log(`Repo:        ${repo}`);
@@ -122,6 +131,18 @@ async function main(opts) {
   }
   if (diff.strictBefore !== diff.strictAfter) {
     console.log(`  strict_required_status_checks_policy: ${diff.strictBefore} → ${diff.strictAfter}`);
+  }
+  if (!diff.pullRequestRulePresent) {
+    console.log('  pull_request rule: (none — review stance not applied; this tool never adds one)');
+  } else {
+    if (diff.reviewsBefore !== diff.reviewsAfter) {
+      console.log(`  required_approving_review_count: ${diff.reviewsBefore} → ${diff.reviewsAfter}`);
+    }
+    if (diff.threadResolutionBefore !== diff.threadResolutionAfter) {
+      console.log(
+        `  required_review_thread_resolution: ${diff.threadResolutionBefore} → ${diff.threadResolutionAfter}`
+      );
+    }
   }
   console.log('');
 
@@ -175,6 +196,17 @@ function parseArgs(argv) {
         break;
       case '--strict':
         opts.strict = true;
+        break;
+      case '--required-reviews': {
+        const n = Number(next());
+        if (!Number.isInteger(n) || n < 0) {
+          throw new Error(`--required-reviews must be a non-negative integer, got "${n}"`);
+        }
+        opts.requiredReviews = n;
+        break;
+      }
+      case '--require-thread-resolution':
+        opts.requireThreadResolution = true;
         break;
       case '--allow-bot-checks':
         opts.allowBotChecks = true;

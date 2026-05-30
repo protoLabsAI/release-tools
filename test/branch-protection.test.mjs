@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   DEFAULT_REQUIRED_CHECKS,
+  DEFAULT_REQUIRED_APPROVING_REVIEWS,
   applyRecommendedDefaults,
   filterBotChecks,
   isBotContext,
@@ -156,6 +157,67 @@ test('applyRecommendedDefaults creates the rule if missing', () => {
   const rule = next.rules.find((r) => r.type === 'required_status_checks');
   assert.ok(rule, 'expected required_status_checks rule to be added');
   assert.deepEqual(rule.parameters.required_status_checks.map((c) => c.context), ['build', 'test']);
+});
+
+test('DEFAULT_REQUIRED_APPROVING_REVIEWS is 0 (approvals advisory)', () => {
+  assert.equal(DEFAULT_REQUIRED_APPROVING_REVIEWS, 0);
+});
+
+test('applyRecommendedDefaults zeroes review count + thread resolution on an existing pull_request rule', () => {
+  const ruleset = {
+    name: 'Protect main',
+    rules: [
+      { type: 'required_status_checks', parameters: { required_status_checks: [] } },
+      {
+        type: 'pull_request',
+        parameters: {
+          required_approving_review_count: 1,
+          required_review_thread_resolution: true,
+          dismiss_stale_reviews_on_push: true,
+          allowed_merge_methods: ['merge', 'squash'],
+        },
+      },
+    ],
+  };
+
+  const { ruleset: next, diff } = applyRecommendedDefaults(ruleset);
+
+  const pr = next.rules.find((r) => r.type === 'pull_request');
+  assert.equal(pr.parameters.required_approving_review_count, 0);
+  assert.equal(pr.parameters.required_review_thread_resolution, false);
+  // Unrelated PR params are preserved.
+  assert.equal(pr.parameters.dismiss_stale_reviews_on_push, true);
+  assert.deepEqual(pr.parameters.allowed_merge_methods, ['merge', 'squash']);
+
+  assert.equal(diff.pullRequestRulePresent, true);
+  assert.equal(diff.reviewsBefore, 1);
+  assert.equal(diff.reviewsAfter, 0);
+  assert.equal(diff.threadResolutionBefore, true);
+  assert.equal(diff.threadResolutionAfter, false);
+});
+
+test('applyRecommendedDefaults honors a custom requiredReviews (human-review opt-out)', () => {
+  const ruleset = {
+    rules: [{ type: 'pull_request', parameters: { required_approving_review_count: 0 } }],
+  };
+  const { ruleset: next, diff } = applyRecommendedDefaults(ruleset, {
+    requiredReviews: 2,
+    requireThreadResolution: true,
+  });
+  const pr = next.rules.find((r) => r.type === 'pull_request');
+  assert.equal(pr.parameters.required_approving_review_count, 2);
+  assert.equal(pr.parameters.required_review_thread_resolution, true);
+  assert.equal(diff.reviewsAfter, 2);
+  assert.equal(diff.threadResolutionAfter, true);
+});
+
+test('applyRecommendedDefaults never CREATES a pull_request rule when absent', () => {
+  const ruleset = { rules: [{ type: 'required_status_checks', parameters: { required_status_checks: [] } }] };
+  const { ruleset: next, diff } = applyRecommendedDefaults(ruleset);
+  assert.equal(next.rules.some((r) => r.type === 'pull_request'), false);
+  assert.equal(diff.pullRequestRulePresent, false);
+  assert.equal(diff.reviewsAfter, null);
+  assert.equal(diff.threadResolutionAfter, null);
 });
 
 test('stripReadOnlyFields removes id and other server-only fields', () => {

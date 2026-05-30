@@ -5,7 +5,7 @@ A protoLabs convention for branch protection rulesets on GitHub. Codified as
 command. Pairs with the existing release-notes generator — same package, same
 install, same versioning.
 
-## The two rules
+## The three rules
 
 ### 1. `required_status_checks` is for correctness, not advisory signals
 
@@ -44,12 +44,47 @@ Keep strict `true` on repos with **5+ contributors or frequent parallel
 feature branches** where semantic conflicts between stale branches are a real
 risk.
 
+### 3. `required_approving_review_count: 0` — approvals advisory, CHANGES_REQUESTED is the veto
+
+This rule only tunes a pull_request rule that **already exists** — it never
+adds a PR requirement to a repo that lacks one.
+
+The fleet runs on an automation identity (the same account that opens every
+PR). GitHub **forbids approving your own pull request**, so a
+`required_approving_review_count` of 1 is permanently unsatisfiable: every PR
+sits at `reviewDecision: REVIEW_REQUIRED` with green CI and cannot merge.
+Admins can bypass, but `--admin` is (correctly) blocked in our automation
+harness, and toggling the ruleset for each merge is a band-aid.
+
+The fix is to make the policy match what rule 1 already implies: **approvals
+are advisory; a `CHANGES_REQUESTED` review is the explicit veto** (it blocks
+via `reviewDecision` regardless of the count). So:
+
+- `required_approving_review_count` → **0**. CI (rule 1) is the correctness
+  gate. A reviewer — human or bot — who wants to stop a merge submits
+  `CHANGES_REQUESTED`; that still blocks.
+- `required_review_thread_resolution` → **false**. Leaving it on re-creates the
+  exact bot-stall from rule 1: an unresolved CodeRabbit/SonarCloud review
+  thread blocks merge indefinitely, even with zero required approvals.
+
+| Want to merge                | Want to block a merge                     |
+| ---------------------------- | ----------------------------------------- |
+| Green CI (build/test/checks) | `CHANGES_REQUESTED` review (any reviewer) |
+| —                            | A failing required status check           |
+
+**Opt out** on repos with a real human-review workflow that can actually
+supply approvals: `--required-reviews 1` (and `--require-thread-resolution`
+if you want it). Those repos have a second human who can approve; the fleet
+default assumes they don't.
+
 ## What this PRESERVES
 
 Even with `strict: false`:
 
-- PR required before merging to `main` ✓
+- PR required before merging to `main` ✓ (rule 3 tunes review count; it never
+  removes the PR requirement)
 - All required status checks must pass on the PR's last CI run ✓
+- A `CHANGES_REQUESTED` review still blocks merge ✓ (the explicit veto)
 - Force-push to `main` blocked ✓
 - Branch deletion blocked ✓
 - Auto-delete head branch on merge ✓
@@ -59,6 +94,8 @@ What changes:
 - `mergeState: BEHIND` no longer blocks merge.
 - The PR can merge whenever its **own** CI is green, regardless of how far
   `main` has advanced since the PR opened.
+- A PR no longer needs an explicit **approval** to merge (rule 3) — green CI is
+  enough, unless a reviewer actively requests changes.
 
 ## Usage
 
@@ -101,6 +138,14 @@ apply-branch-protection \
 
 ```bash
 apply-branch-protection --branch main --strict --apply
+```
+
+### Require human approvals (opt-out of the 0-review default)
+
+For a repo with a real second reviewer who can actually approve PRs:
+
+```bash
+apply-branch-protection --branch main --required-reviews 1 --require-thread-resolution --apply
 ```
 
 ### Allow bot status checks (opt-out of the bot filter)
@@ -148,9 +193,13 @@ are preserved.
   list it explicitly in `--required-checks`.
 - **Repos with regulatory requirements** that mandate specific gating
   behavior. The defaults are calibrated for fast iteration, not compliance.
+- **Repos with a human review workflow.** If a real second reviewer approves
+  PRs, keep a positive review count via `--required-reviews 1` rather than
+  taking the 0-review fleet default.
 
 ## Related issues
 
 - [release-tools#6](https://github.com/protoLabsAI/release-tools/issues/6) — original strict/loose recommendation
 - [release-tools#10](https://github.com/protoLabsAI/release-tools/issues/10) — bot-checks exclusion
 - [protoMaker#3745](https://github.com/protoLabsAI/protoMaker/issues/3745) — first applied case (CodeRabbit dropped from `Protect main`)
+- [protoMaker#3985](https://github.com/protoLabsAI/protoMaker/issues/3985) — review-count stance (rule 3): automation-authored PRs can't self-approve
