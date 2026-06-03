@@ -151,9 +151,28 @@ function localManifest(root) {
     tracked = null;
   }
 
+  // Authoritative ignore resolution via git, so the allowlist `.beads/.gitignore`
+  // form (`*` + `!issues.jsonl`) and nested/global ignore files are honored —
+  // substring-matching the root .gitignore alone can't see them, which false-
+  // failed `beads-db-gitignored` for any contributor with a local beads.db (#32).
+  // `git check-ignore -q PATH` exits 0=ignored, 1=not ignored, 128=error; it
+  // works on the pathname whether or not the file exists. Only wired when git is
+  // usable (tracked !== null); otherwise the rule falls back to .gitignore text.
+  const isIgnored = tracked
+    ? (p) => {
+        try {
+          execFileSync('git', ['-C', root, 'check-ignore', '-q', '--', p], { stdio: 'ignore' });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+    : undefined;
+
   return {
     hasFile: (p) => (tracked ? tracked.has(p) : existsSync(join(root, p))),
     gitignore,
+    ...(isIgnored ? { isIgnored } : {}),
     workflowRunners,
   };
 }
@@ -178,7 +197,12 @@ async function remoteManifest(repo, ref) {
     }
   };
 
-  // Fetch .gitignore content (base64) if present.
+  // Fetch root .gitignore content (base64) if present. NOTE: remote mode has no
+  // git, so it can't `check-ignore` and supplies no `isIgnored` — `beads-db-
+  // gitignored` falls back to substring matching the ROOT .gitignore only. It
+  // still can't see the allowlist `*` form or a nested .beads/.gitignore (#32 is
+  // fixed for local mode only; remote audit retains this blind spot by design —
+  // follow-up: fetch .beads/.gitignore + evaluate with an allowlist-aware matcher).
   let gitignore = '';
   try {
     const { stdout } = await execFileAsync(
