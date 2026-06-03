@@ -88,17 +88,16 @@ jobs:
           git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Publish to npm
-        # Trusted Publishing: npm exchanges the GitHub OIDC token issued by
-        # `id-token: write` (job level) for a short-lived publish credential.
-        # The same OIDC token continues to drive --provenance.
-        #
-        # Prerequisite (one-time, npm UI):
-        #   npmjs.com/package/@protolabsai/release-tools/access →
-        #     Trusted Publishers → Add → GitHub Actions
-        #     repository:        protoLabsAI/release-tools
-        #     workflow filename: release.yml
-        #     environment:       (none)
+        # Token auth (org-level NPM automation token). OIDC Trusted Publishing
+        # was wired (id-token: write + --provenance still sign provenance) but
+        # the registry-side trusted-publisher exchange wasn't authorizing, so
+        # publishes 404'd; fall back to an automation token to unblock releases.
+        # NPM_TOKEN is SELECTED-visibility (empty if this repo isn't in its
+        # list) → fall through to the ALL-visibility NPM_PUBLISH_TOKEN.
+        # Revisit OIDC once the npm trusted-publisher grant is confirmed.
         if: steps.version.outputs.npm_published != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN || secrets.NPM_PUBLISH_TOKEN }}
         run: npm publish --access public --provenance
 
       - name: Create GitHub release
