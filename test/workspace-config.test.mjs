@@ -5,6 +5,7 @@ import {
   WORKSPACE_STANDARD,
   evaluateStandard,
   gitignoreMatches,
+  resolveIgnored,
   isGitHubHostedRunner,
   listRunnerExceptions,
   planScaffold,
@@ -38,6 +39,46 @@ test('gitignoreMatches ignores comments and blank lines', () => {
   assert.equal(gitignoreMatches(gi, ['.worktrees/']), true);
   assert.equal(gitignoreMatches('# .worktrees/', ['.worktrees/']), false); // commented out
   assert.equal(gitignoreMatches('', ['.worktrees/']), false);
+});
+
+// ── ignore resolution: isIgnored resolver vs .gitignore fallback (#32) ─────
+
+test('resolveIgnored prefers the manifest resolver over .gitignore text', () => {
+  // Resolver says ignored even though the .gitignore text has no matching line.
+  assert.equal(resolveIgnored({ isIgnored: () => true, gitignore: '' }, '.beads/beads.db', ['.beads/beads.db']), true);
+  // Resolver is authoritative: says NOT ignored even though the text would match.
+  assert.equal(
+    resolveIgnored({ isIgnored: () => false, gitignore: '.beads/beads.db' }, '.beads/beads.db', ['.beads/beads.db']),
+    false
+  );
+});
+
+test('resolveIgnored falls back to .gitignore substring match when no resolver', () => {
+  assert.equal(resolveIgnored({ gitignore: '.beads/beads.db\n' }, '.beads/beads.db', ['.beads/beads.db']), true);
+  assert.equal(resolveIgnored({ gitignore: '.worktrees/\n' }, '.beads/beads.db', ['.beads/beads.db']), false);
+});
+
+test('beads-db-gitignored passes on the allowlist form via the isIgnored resolver', () => {
+  // The documented allowlist .beads/.gitignore — `*` ignores beads.db, but it
+  // contains none of the legacy literal substrings. git (isIgnored) honors it.
+  const m = {
+    hasFile: (p) => ['.beads/issues.jsonl', '.automaker/settings.json', WORKFLOW_SECURITY_LINT_PATH].includes(p),
+    gitignore: '.worktrees/\n.automaker/features/\n.automaker/checkpoints/\n.automaker/trajectory/',
+    isIgnored: (p) => p === '.beads/beads.db', // git check-ignore would say yes
+  };
+  const r = evaluateStandard(m);
+  assert.ok(r.passed.includes('beads-db-gitignored'), 'allowlist form should satisfy the rule');
+  assert.equal(r.violations.some((v) => v.id === 'beads-db-gitignored'), false);
+});
+
+test('beads-db-gitignored still fails when git reports the db is NOT ignored', () => {
+  const m = {
+    hasFile: (p) => ['.beads/issues.jsonl', '.automaker/settings.json'].includes(p),
+    gitignore: '.beads/beads.db', // text looks fine, but git is the source of truth
+    isIgnored: () => false,
+  };
+  const r = evaluateStandard(m);
+  assert.ok(r.violations.some((v) => v.id === 'beads-db-gitignored' && v.severity === 'error'));
 });
 
 test('a fully-conformant workspace passes with zero violations', () => {
