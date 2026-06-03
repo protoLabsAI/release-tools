@@ -35,6 +35,12 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org/"
 
+      # Tokenless OIDC Trusted Publishing requires npm >= 11.5.1. Node 20 ships
+      # npm 10.x, which silently falls back to (placeholder) token auth and
+      # 404s against the registry. Pin a recent npm so the OIDC exchange runs.
+      - name: Upgrade npm for OIDC Trusted Publishing
+        run: npm install -g npm@latest
+
       - name: Read version from package.json
         id: version
         run: |
@@ -96,13 +102,19 @@ jobs:
         run: npm publish --access public --provenance
 
       - name: Create GitHub release
-        if: steps.version.outputs.tag_exists != 'true'
-        run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --title "${{ steps.version.outputs.tag }}" \
-            --generate-notes
+        # Idempotent on the release's own existence, NOT on tag_exists: a prior
+        # run that tagged but failed at publish leaves the tag behind, and
+        # gating on tag_exists would then skip the release forever. Create only
+        # if it's missing.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — skipping."
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
 
       - name: Announce on Discord
         # Generate AI release notes from the commit range and post the embed.
