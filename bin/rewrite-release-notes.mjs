@@ -29,6 +29,8 @@
  *                             Default: derived from `git remote get-url origin`.
  *   RELEASE_NOTES_FOOTER      Override the Discord embed footer text.
  *                             Default: "protoLabs · <repo-name>"
+ *   RELEASE_NOTES_TITLE       Override the Discord embed title text.
+ *                             Default: "<repo-name> <version>"
  *
  * When called with no positional args, auto-detects the two most recent
  * semver-sorted tags (latest as `version`, previous as `prev-version`).
@@ -210,11 +212,15 @@ async function postToDiscord(repoSlug, version, notes) {
   const repoName = repoSlug.split('/').pop();
   const footer =
     process.env.RELEASE_NOTES_FOOTER || `protoLabs · ${repoName}`;
+  // Lead the embed with the repo name alongside the version. With many repos'
+  // releases flowing into one channel, version-only titles are ambiguous and
+  // the footer alone isn't enough to tell them apart at a glance.
+  const title = process.env.RELEASE_NOTES_TITLE || `${repoName} ${version}`;
 
   const payload = {
     embeds: [
       {
-        title: `${version}`,
+        title,
         url: releaseUrl,
         description: truncated,
         color: 5763719, // #5865F2 blurple
