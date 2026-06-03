@@ -103,3 +103,21 @@ jobs:
             --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Announce on Discord
+        # Generate AI release notes from the commit range and post the embed.
+        # Gated to a genuine new publish (same guard as the npm step) so
+        # idempotent re-runs never double-post. Degrades to a no-op if the
+        # webhook secret is absent, so it can never break the tag/publish path.
+        if: steps.version.outputs.npm_published != 'true'
+        env:
+          GATEWAY_API_KEY: ${{ secrets.GATEWAY_API_KEY }}
+          DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          RELEASE_NOTES_REPO: ${{ github.repository }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if [ -z "$DISCORD_RELEASE_WEBHOOK" ]; then
+            echo "DISCORD_RELEASE_WEBHOOK not set — skipping Discord announce."
+            exit 0
+          fi
+          node bin/rewrite-release-notes.mjs "$TAG" --post-discord
