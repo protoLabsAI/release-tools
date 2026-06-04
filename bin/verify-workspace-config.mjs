@@ -169,11 +169,24 @@ function localManifest(root) {
       }
     : undefined;
 
+  // package.json (parsed) so the biome-linter rule can read the @biomejs/biome
+  // dep. null = not a node repo (Python/Rust/etc) → the rule is N/A there.
+  let packageJson = null;
+  try {
+    const pkgPath = join(root, 'package.json');
+    if (tracked ? tracked.has('package.json') : existsSync(pkgPath)) {
+      packageJson = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    }
+  } catch {
+    packageJson = null;
+  }
+
   return {
     hasFile: (p) => (tracked ? tracked.has(p) : existsSync(join(root, p))),
     gitignore,
     ...(isIgnored ? { isIgnored } : {}),
     workflowRunners,
+    packageJson,
   };
 }
 
@@ -220,6 +233,8 @@ async function remoteManifest(repo, ref) {
     '.beads/issues.jsonl',
     '.beads/beads.db',
     '.automaker/settings.json',
+    'biome.json',
+    'biome.jsonc',
   ];
   const present = new Set();
   await Promise.all(
@@ -269,7 +284,20 @@ async function remoteManifest(repo, ref) {
     /* no .github/workflows dir */
   }
 
-  return { hasFile: (p) => present.has(p), gitignore, workflowRunners };
+  // Fetch + parse package.json (for the biome-linter rule). null = not a node repo.
+  let packageJson = null;
+  try {
+    const { stdout } = await execFileAsync(
+      'gh',
+      ['api', `repos/${owner}/${name}/contents/package.json?ref=${resolvedRef}`, '--jq', '.content'],
+      { encoding: 'utf8' }
+    );
+    packageJson = JSON.parse(Buffer.from(stdout.trim(), 'base64').toString('utf8'));
+  } catch {
+    packageJson = null;
+  }
+
+  return { hasFile: (p) => present.has(p), gitignore, workflowRunners, packageJson };
 }
 
 async function defaultBranch(owner, name) {
