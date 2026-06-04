@@ -22,6 +22,7 @@ Enforced by `verify-workspace-config` (this package).
 | `automaker-transient-gitignored` | warn     | `.automaker/features/`, `checkpoints/`, `trajectory/` gitignored; `settings.json` + `context/` stay committed                                           |
 | `workflows-use-owned-runners`    | error    | every `runs-on:` is an org-owned runner (`namespace-profile-protolabs-linux`), never GitHub-hosted (`ubuntu-*`, `windows-*`, `macos-*`)                 |
 | `workflow-security-lint`         | warn     | `.github/workflows/workflow-security-lint.yml` exists — zizmor + actionlint run in CI (CWE-94 script-injection, unpinned actions, token over-privilege) |
+| `biome-linter`                   | warn     | JS/TS repos (those with a `package.json`) lint with **biome** at the fleet-pinned version (`FLEET_BIOME_VERSION`); non-node repos are N/A                |
 
 **Errors gate CI. Warnings are advisory.**
 
@@ -80,6 +81,29 @@ jobs:
 
 `warn` for now so the fleet can roll out without breaking CI on day one;
 tighten to `error` once every managed repo carries it.
+
+### Why JS/TS repos track one biome version
+
+protoLabs standardizes JS/TS linting on [biome](https://biomejs.dev) — one fast
+single-binary linter, no ESLint plugin sprawl. The fleet tracks **one** biome
+version together so a lint rule means the same thing in every repo and upgrades
+land in lockstep instead of scattering into per-repo drift.
+
+The pinned version lives in **one place** — `FLEET_BIOME_VERSION` in
+`release-tools` (`lib/workspace-config.mjs`). Bump it there and
+`verify-workspace-config` flags every node repo that hasn't followed, with the
+gap spelled out in the detail line (no `@biomejs/biome` dep → still on ESLint;
+biome declared but no `biome.json`; or a version different from the fleet pin).
+Adopt or catch up with:
+
+```bash
+npm i -D @biomejs/biome@<FLEET_BIOME_VERSION>   # the version from the table above
+npm pkg set scripts.lint="biome lint ."          # add a biome.json, drop ESLint
+```
+
+The rule is **N/A for non-node repos** (Python, Rust — no `package.json`), so it
+never fires there. `warn` for now so adoption rolls out without breaking CI;
+tighten to `error` once every node repo is on biome.
 
 ### Why `.automaker/settings.json` is committed per-repo
 

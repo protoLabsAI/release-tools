@@ -12,6 +12,9 @@ import {
   SCAFFOLD_FILES,
   REQUIRED_GITIGNORE,
   WORKFLOW_SECURITY_LINT_PATH,
+  FLEET_BIOME_VERSION,
+  cleanVersion,
+  biomeVersion,
 } from '../lib/workspace-config.mjs';
 
 /** Build a manifest from a list of present files + gitignore text. */
@@ -363,4 +366,83 @@ test('planScaffold leaves selective .automaker/features/ alone (no false removal
   const plan = planScaffold(m);
   assert.deepEqual(plan.gitignoreRemovals, []);
   assert.deepEqual(plan.gitignoreAdditions, []);
+});
+
+// ── biome-linter (fleet biome version tracking) ──────────────────────────────
+
+/** Build a manifest for a node repo with a given biome dep + biome.json presence. */
+function nodeManifest({ biomeDep, hasBiomeJson = true, dev = true } = {}) {
+  const files = new Set(hasBiomeJson ? ['biome.json'] : []);
+  const deps = biomeDep ? { '@biomejs/biome': biomeDep } : {};
+  return {
+    hasFile: (p) => files.has(p),
+    gitignore: '',
+    packageJson: { [dev ? 'devDependencies' : 'dependencies']: deps },
+  };
+}
+
+const biomeViolation = (m) =>
+  evaluateStandard(m).violations.find((v) => v.id === 'biome-linter');
+
+test('cleanVersion strips semver range prefixes', () => {
+  assert.equal(cleanVersion('2.4.16'), '2.4.16');
+  assert.equal(cleanVersion('^2.4.16'), '2.4.16');
+  assert.equal(cleanVersion('~2.4.16'), '2.4.16');
+  assert.equal(cleanVersion('>=2.4.16'), '2.4.16');
+  assert.equal(cleanVersion(' 2.4.16 '), '2.4.16');
+  assert.equal(cleanVersion(undefined), '');
+});
+
+test('biomeVersion reads devDependencies then dependencies, null when absent', () => {
+  assert.equal(biomeVersion({ devDependencies: { '@biomejs/biome': '2.4.16' } }), '2.4.16');
+  assert.equal(biomeVersion({ dependencies: { '@biomejs/biome': '^2.0.0' } }), '^2.0.0');
+  assert.equal(biomeVersion({ devDependencies: { eslint: '^9' } }), null);
+  assert.equal(biomeVersion(null), null);
+});
+
+test('biome-linter is N/A for non-node repos (no packageJson)', () => {
+  // Python/Rust repos have no package.json → rule passes, no violation.
+  const m = { hasFile: () => false, gitignore: '' };
+  assert.equal(biomeViolation(m), undefined);
+  assert.ok(evaluateStandard(m).passed.includes('biome-linter'));
+});
+
+test('biome-linter passes when a node repo is on the fleet biome version', () => {
+  const m = nodeManifest({ biomeDep: FLEET_BIOME_VERSION });
+  assert.equal(biomeViolation(m), undefined);
+  // a caret range on the same version still matches (cleanVersion strips ^)
+  assert.equal(biomeViolation(nodeManifest({ biomeDep: `^${FLEET_BIOME_VERSION}` })), undefined);
+});
+
+test('biome-linter warns (not errors) when a node repo has no biome dep', () => {
+  // Otherwise-conformant repo on ESLint → only the biome-linter warn fires, and
+  // a warn must not fail overall conformance.
+  const m = { ...goodManifest(), packageJson: { devDependencies: { eslint: '^9' } } };
+  const r = evaluateStandard(m);
+  const v = r.violations.find((x) => x.id === 'biome-linter');
+  assert.ok(v, 'expected a biome-linter violation');
+  assert.equal(v.severity, 'warn');
+  assert.match(v.detail.join(' '), /no @biomejs\/biome/);
+  assert.equal(r.ok, true, 'warn-severity biome gap must not fail conformance');
+});
+
+test('biome-linter warns when biome is declared but no biome.json', () => {
+  const v = biomeViolation(nodeManifest({ biomeDep: FLEET_BIOME_VERSION, hasBiomeJson: false }));
+  assert.ok(v);
+  assert.match(v.detail.join(' '), /no biome\.json/);
+});
+
+test('biome-linter warns on version drift from the fleet pin', () => {
+  const v = biomeViolation(nodeManifest({ biomeDep: '2.3.0' }));
+  assert.ok(v);
+  assert.match(v.detail.join(' '), new RegExp(`fleet tracks ${FLEET_BIOME_VERSION.replace(/\./g, '\\.')}`));
+});
+
+test('biome.jsonc satisfies the config requirement too', () => {
+  const m = {
+    hasFile: (p) => p === 'biome.jsonc',
+    gitignore: '',
+    packageJson: { devDependencies: { '@biomejs/biome': FLEET_BIOME_VERSION } },
+  };
+  assert.equal(biomeViolation(m), undefined);
 });
