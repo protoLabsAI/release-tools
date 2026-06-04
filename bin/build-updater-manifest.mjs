@@ -201,7 +201,7 @@ const manifest = {
   platforms,
 };
 
-writeFileSync(outPath, JSON.stringify(manifest, null, 2) + '\n');
+writeFileSync(outPath, `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(
   `Wrote ${outPath} for v${version} (${Object.keys(platforms).length} platform(s): ${Object.keys(
     platforms,

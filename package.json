@@ -35,12 +35,11 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "lint": "eslint .",
+    "lint": "biome lint .",
     "smoke": "node bin/rewrite-release-notes.mjs --help && node bin/build-updater-manifest.mjs --help && node bin/apply-branch-protection.mjs --help && node bin/verify-workspace-config.mjs --help && node bin/init-workspace-config.mjs --help",
     "test": "node --test test/*.mjs"
   },
   "devDependencies": {
-    "eslint": "^9.0.0",
-    "globals": "^15.0.0"
+    "@biomejs/biome": "2.4.16"
   }
 }

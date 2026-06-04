@@ -70,7 +70,7 @@ function extractRunsOn(file, body) {
     }
 
     // Strip a trailing comment from the value before parsing labels.
-    let val = m[1].replace(/\s+#.*$/, '').trim();
+    const val = m[1].replace(/\s+#.*$/, '').trim();
 
     const push = (label) => out.push({ file, runsOn: label, allowed, reason });
     if (val.startsWith('[')) {
