@@ -222,7 +222,7 @@ async function postToDiscord(repoSlug, version, notes) {
   if (!webhook) throw new Error('DISCORD_RELEASE_WEBHOOK is not set');
 
   const releaseUrl = `https://github.com/${repoSlug}/releases/tag/${version}`;
-  const truncated = notes.length > 3900 ? notes.slice(0, 3900) + '\n...' : notes;
+  const truncated = notes.length > 3900 ? `${notes.slice(0, 3900)}\n...` : notes;
   const repoName = repoSlug.split('/').pop();
   const footer =
     process.env.RELEASE_NOTES_FOOTER || `protoLabs · ${repoName}`;
