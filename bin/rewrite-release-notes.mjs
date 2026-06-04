@@ -66,6 +66,20 @@ function getTags() {
   return { latest: tags[0], previous: tags[1] };
 }
 
+/**
+ * The repo's root commit — the range start for a first release (no prior tag).
+ * `--max-parents=0` can list more than one root for grafted/merged histories;
+ * the last entry is the earliest, so the range covers the whole history.
+ */
+function getRootCommit() {
+  try {
+    const roots = run('git rev-list --max-parents=0 HEAD').split('\n').filter(Boolean);
+    return roots[roots.length - 1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function getCommitsBetween(fromTag, toTag) {
   const SEPARATOR = '<<<COMMIT>>>';
   const log = run(
@@ -263,7 +277,24 @@ if (!version || !previousVersion) {
   previousVersion = previousVersion ?? tags.previous;
 }
 
-if (!version || !previousVersion) {
+if (!version) {
+  console.error('Could not determine the release version. Pass it explicitly.');
+  process.exit(1);
+}
+
+// First release: there's no previous tag, so diff from the repo's root commit
+// (the whole history is the range) instead of erroring out. Every consuming
+// repo's first `v*` tag would otherwise fail here.
+if (!previousVersion) {
+  previousVersion = getRootCommit();
+  if (previousVersion) {
+    console.log(
+      `No previous tag — first release; diffing from root commit ${previousVersion}.`,
+    );
+  }
+}
+
+if (!previousVersion) {
   console.error('Could not determine version tags. Pass them explicitly.');
   process.exit(1);
 }
