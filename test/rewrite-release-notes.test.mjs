@@ -175,3 +175,24 @@ test('exposes notes + highlights on $GITHUB_OUTPUT', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('--changelog json warns loudly (not silently) when the existing file is malformed', () => {
+  const dir = tmp();
+  try {
+    writeFileSync(join(dir, 'notes.md'), FIXTURE);
+    const cl = join(dir, 'changelog.json');
+    writeFileSync(cl, '{ not valid json ['); // corrupt
+    const r = spawnSync(
+      'node',
+      [CLI, 'v9.9.9', '--notes-file', join(dir, 'notes.md'), '--changelog', cl, '--changelog-format', 'json'],
+      { cwd: dir, encoding: 'utf8' },
+    );
+    assert.equal(r.status, 0, r.stderr);
+    // The data loss is surfaced, not silent.
+    assert.match(`${r.stdout}${r.stderr}`, /could not parse the existing changelog as JSON/i);
+    // The release still lands rather than failing the job.
+    assert.equal(JSON.parse(readFileSync(cl, 'utf8'))[0].version, 'v9.9.9');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

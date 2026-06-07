@@ -326,10 +326,20 @@ function upsertJsonChangelog(existingText, entry) {
   if (existingText?.trim()) {
     try {
       const parsed = JSON.parse(existingText);
-      if (Array.isArray(parsed)) arr = parsed;
-    } catch {
-      // Malformed — start fresh rather than drop the release; the caller commits
-      // the result, so a bad file surfaces in review instead of silently losing.
+      if (Array.isArray(parsed)) {
+        arr = parsed;
+      } else {
+        console.warn(
+          'WARNING: existing changelog is not a JSON array — starting fresh; prior content is dropped.',
+        );
+      }
+    } catch (err) {
+      // Don't drop the release over a bad file, but make the data loss LOUD so
+      // it shows up in CI output instead of silently wiping history.
+      console.warn(
+        `WARNING: could not parse the existing changelog as JSON (${err.message}) — ` +
+          'starting fresh; prior entries are dropped.',
+      );
     }
   }
   const rest = arr.filter((e) => e?.version !== entry.version);
