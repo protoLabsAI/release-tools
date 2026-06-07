@@ -38,6 +38,28 @@ inputs:
     description: 'Override the Discord embed footer text. Default: "protoLabs · <repo-name>".'
     required: false
     default: ''
+  out-file:
+    description: 'Write the generated notes (markdown) to this path.'
+    required: false
+    default: ''
+  changelog-file:
+    description: |
+      Prepend a dated entry to this changelog file. Committing it is the caller's
+      job (release jobs run on a tag, so write it back to the right branch).
+    required: false
+    default: ''
+  changelog-format:
+    description: 'Changelog format when changelog-file is set: md (default) | json.'
+    required: false
+    default: 'md'
+
+outputs:
+  notes:
+    description: 'The generated release notes (markdown) — e.g. for the GitHub release body.'
+    value: ${{ steps.generate.outputs.notes }}
+  highlights:
+    description: 'JSON array of the bullet lines from the notes, for structured changelogs.'
+    value: ${{ steps.generate.outputs.highlights }}
 
 # Secrets are read from the calling job's env via standard env-var passthrough:
 #   env:
@@ -53,6 +75,7 @@ runs:
         node-version: '20'
 
     - name: Run release-notes generator
+      id: generate
       shell: bash
       env:
         RELEASE_NOTES_MODEL: ${{ inputs.model }}
@@ -65,6 +88,13 @@ runs:
           FLAGS+=("--dry-run")
         elif [ "${{ inputs.post-discord }}" = "true" ]; then
           FLAGS+=("--post-discord")
+        fi
+        if [ -n "${{ inputs.out-file }}" ]; then
+          FLAGS+=("--out" "${{ inputs.out-file }}")
+        fi
+        if [ -n "${{ inputs.changelog-file }}" ]; then
+          FLAGS+=("--changelog" "${{ inputs.changelog-file }}" \
+                  "--changelog-format" "${{ inputs.changelog-format }}")
         fi
         npx --yes -p '@protolabsai/release-tools@latest' rewrite-release-notes \
           "${{ inputs.version }}" "${{ inputs.previous-version }}" "${FLAGS[@]}"
