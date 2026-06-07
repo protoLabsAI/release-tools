@@ -13,9 +13,21 @@
  *   rewrite-release-notes [version] [prev-version] [flags]
  *
  * Flags:
- *   --post-discord    Post the generated notes to DISCORD_RELEASE_WEBHOOK.
- *   --dry-run         Print the prompt that would be sent and exit.
- *   --help            Show this help and exit.
+ *   --post-discord            Post the generated notes to DISCORD_RELEASE_WEBHOOK.
+ *   --out <file>              Write the notes (markdown) to <file>.
+ *   --changelog <file>        Prepend a dated entry to a changelog file.
+ *   --changelog-format <fmt>  md (default) | json. md prepends a
+ *                             "## <version> — <date>" section; json prepends
+ *                             { version, date, notes, highlights } to a JSON array.
+ *   --date <YYYY-MM-DD>       Changelog entry date. Default: today (UTC).
+ *   --notes-file <file>       Use notes from <file> instead of calling the LLM
+ *                             (reuse a prior job's notes; also makes the file
+ *                             outputs runnable without a gateway key).
+ *   --dry-run                 Print the prompt that would be sent and exit.
+ *   --help                    Show this help and exit.
+ *
+ * GitHub Actions: when $GITHUB_OUTPUT is set, the generated `notes` (markdown)
+ * and `highlights` (JSON array of the bullet lines) are exposed as step outputs.
  *
  * Environment:
  *   GATEWAY_API_KEY            (required for non-dry-run) Bearer token for the gateway.
@@ -37,6 +49,12 @@
  */
 
 import { execSync } from 'node:child_process';
+import {
+  appendFileSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 
 // ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -267,25 +285,165 @@ async function postToDiscord(repoSlug, version, notes) {
   }
 }
 
+// ─── Changelog + Action outputs ───────────────────────────────────────────────
+//
+// The notes the LLM produces are useful beyond Discord: a repo's GitHub release
+// body, a CHANGELOG.md, or a marketing changelog all want the same polished
+// text. These helpers expose it (as Action outputs + optional files) so a single
+// generation drives every changelog surface — see docs/how-to/generate-release-notes.md.
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * Flatten the generated markdown into a list of user-facing change lines — the
+ * bullet items, with the `- `/`* ` marker stripped. Section headers + the intro
+ * sentence are dropped. Repos that keep a structured changelog (one entry = an
+ * array of change strings) build their entry from this.
+ */
+function extractHighlights(notes) {
+  return notes
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => /^[-*]\s+/.test(l))
+    .map((l) => l.replace(/^[-*]\s+/, '').trim())
+    .filter(Boolean);
+}
+
+/** Prepend a dated section, keeping a leading `# H1` title at the very top. */
+function prependMarkdownChangelog(existing, version, date, notes) {
+  const entry = `## ${version} — ${date}\n\n${notes.trim()}\n`;
+  const text = existing ?? '';
+  const head = text.match(/^(#[^\n]*\n+)/); // a leading "# Changelog" title
+  if (head) {
+    return `${head[1]}${entry}\n${text.slice(head[1].length)}`;
+  }
+  return text.trim() ? `${entry}\n${text}` : `# Changelog\n\n${entry}`;
+}
+
+/** Prepend (or replace the same version) in a JSON-array changelog file. */
+function upsertJsonChangelog(existingText, entry) {
+  let arr = [];
+  if (existingText?.trim()) {
+    try {
+      const parsed = JSON.parse(existingText);
+      if (Array.isArray(parsed)) arr = parsed;
+    } catch {
+      // Malformed — start fresh rather than drop the release; the caller commits
+      // the result, so a bad file surfaces in review instead of silently losing.
+    }
+  }
+  const rest = arr.filter((e) => e?.version !== entry.version);
+  return `${JSON.stringify([entry, ...rest], null, 2)}\n`;
+}
+
+/** Expose the notes + highlights as GitHub Actions step outputs, if running there. */
+function writeGithubOutputs(notes, highlights) {
+  const out = process.env.GITHUB_OUTPUT;
+  if (!out) return;
+  const D = 'RELNOTES_EOF';
+  appendFileSync(
+    out,
+    `notes<<${D}\n${notes}\n${D}\nhighlights=${JSON.stringify(highlights)}\n`,
+  );
+  console.log('Wrote `notes` + `highlights` to $GITHUB_OUTPUT');
+}
+
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
-const postDiscord = args.includes('--post-discord');
-const dryRun = args.includes('--dry-run');
-const positional = args.filter((a) => !a.startsWith('--'));
+// Flags that take a value (the next token), so it isn't mistaken for a
+// positional version arg.
+const VALUE_FLAGS = new Set([
+  '--out',
+  '--changelog',
+  '--changelog-format',
+  '--notes-file',
+  '--date',
+]);
+const opts = {};
+const positional = [];
+for (let i = 0; i < args.length; i++) {
+  const a = args[i];
+  if (VALUE_FLAGS.has(a)) opts[a] = args[++i];
+  else if (a.startsWith('--')) opts[a] = true;
+  else positional.push(a);
+}
+const postDiscord = !!opts['--post-discord'];
+const dryRun = !!opts['--dry-run'];
+const outFile = opts['--out'];
+const changelogFile = opts['--changelog'];
+const changelogFormat = opts['--changelog-format'] || 'md';
+const notesFile = opts['--notes-file'];
+const entryDate = opts['--date'] || today();
 
 let version = positional[0];
 let previousVersion = positional[1];
 
-if (!version || !previousVersion) {
-  const tags = getTags();
-  version = version ?? tags.latest;
-  previousVersion = previousVersion ?? tags.previous;
+// Version is always needed; the commit range (previousVersion) only when we
+// generate from git. Resolve from tags lazily so the --notes-file path works in
+// a plain (non-git) checkout too.
+if (!version) {
+  version = getTags().latest;
 }
-
 if (!version) {
   console.error('Could not determine the release version. Pass it explicitly.');
   process.exit(1);
+}
+
+const repoSlug = process.env.RELEASE_NOTES_REPO || detectRepoSlug();
+if (postDiscord && !repoSlug) {
+  console.error(
+    'Could not determine repo owner/name. Set RELEASE_NOTES_REPO=owner/name.',
+  );
+  process.exit(1);
+}
+
+// Emit the notes to every requested sink: stdout, Action outputs, a notes file,
+// a changelog file, and/or Discord. Shared by the reuse path and the LLM path.
+async function emitNotes(notes) {
+  console.log('\n── Release Notes ──\n');
+  console.log(notes);
+
+  const highlights = extractHighlights(notes);
+  writeGithubOutputs(notes, highlights);
+
+  if (outFile) {
+    writeFileSync(outFile, `${notes.trim()}\n`);
+    console.log(`Wrote notes → ${outFile}`);
+  }
+
+  if (changelogFile) {
+    const existing = existsSync(changelogFile)
+      ? readFileSync(changelogFile, 'utf8')
+      : '';
+    const updated =
+      changelogFormat === 'json'
+        ? upsertJsonChangelog(existing, {
+            version,
+            date: entryDate,
+            notes: notes.trim(),
+            highlights,
+          })
+        : prependMarkdownChangelog(existing, version, entryDate, notes);
+    writeFileSync(changelogFile, updated);
+    console.log(`Updated changelog → ${changelogFile} (${changelogFormat})`);
+  }
+
+  if (postDiscord) {
+    await postToDiscord(repoSlug, version, notes);
+  }
+}
+
+// Reuse pre-generated notes (a prior job's output; also lets the file/changelog
+// paths run without a gateway key) — no git range or LLM call needed.
+if (notesFile) {
+  console.log(`Using notes from ${notesFile}`);
+  await emitNotes(readFileSync(notesFile, 'utf8').trim());
+  process.exit(0);
+}
+
+if (!previousVersion) {
+  previousVersion = getTags().previous;
 }
 
 // First release: there's no previous tag, so diff from the repo's root commit
@@ -302,14 +460,6 @@ if (!previousVersion) {
 
 if (!previousVersion) {
   console.error('Could not determine version tags. Pass them explicitly.');
-  process.exit(1);
-}
-
-const repoSlug = process.env.RELEASE_NOTES_REPO || detectRepoSlug();
-if (postDiscord && !repoSlug) {
-  console.error(
-    'Could not determine repo owner/name. Set RELEASE_NOTES_REPO=owner/name.',
-  );
   process.exit(1);
 }
 
@@ -350,16 +500,10 @@ if (dryRun) {
   process.exit(0);
 }
 
-// Skip if all commits were filtered out (maintenance releases, CI-only changes)
+// Skip when every commit was filtered out (maintenance / CI-only releases).
 if (filteredCount === 0) {
-  console.log('No user-facing commits — skipping Discord post.');
+  console.log('No user-facing commits — nothing to generate.');
   process.exit(0);
 }
 
-const notes = await callLLM(userPrompt);
-console.log('\n── Release Notes ──\n');
-console.log(notes);
-
-if (postDiscord) {
-  await postToDiscord(repoSlug, version, notes);
-}
+await emitNotes(await callLLM(userPrompt));

@@ -20,17 +20,29 @@ via `npx @protolabsai/release-tools <command>`.
 
 Auto-detects the two most recent semver tags when positionals are omitted.
 
-| Flag                  | Default                        | Description                                     |
-| --------------------- | ------------------------------ | ----------------------------------------------- |
-| `--post-discord`      | off                            | Post the embed to `DISCORD_RELEASE_WEBHOOK`     |
-| `--dry-run`           | off                            | Print the prompt and exit; no LLM call, no post |
-| `--model <alias>`     | `protolabs/fast`               | Gateway model alias                             |
-| `--base-url <url>`    | `https://api.proto-labs.ai/v1` | Gateway base URL                                |
-| `--repo <owner/name>` | from git remote                | Repo for the release URL + footer               |
+| Flag                       | Default                        | Description                                      |
+| -------------------------- | ------------------------------ | ------------------------------------------------ |
+| `--post-discord`           | off                            | Post the embed to `DISCORD_RELEASE_WEBHOOK`      |
+| `--out <file>`             | —                              | Write the notes (markdown) to `<file>`           |
+| `--changelog <file>`       | —                              | Prepend a dated entry to a changelog file        |
+| `--changelog-format <fmt>` | `md`                           | `md` section, or `json` array entry              |
+| `--date <YYYY-MM-DD>`      | today (UTC)                    | Changelog entry date                             |
+| `--notes-file <file>`      | —                              | Use notes from `<file>` instead of the LLM       |
+| `--dry-run`                | off                            | Print the prompt and exit; no LLM call, no post  |
+| `--model <alias>`          | `protolabs/fast`               | Gateway model alias                              |
+| `--base-url <url>`         | `https://api.proto-labs.ai/v1` | Gateway base URL                                 |
+| `--repo <owner/name>`      | from git remote                | Repo for the release URL + footer                |
 
 Env: `GATEWAY_API_KEY` (required for non-dry-run), `OPENAI_BASE_URL`,
 `RELEASE_NOTES_MODEL`, `DISCORD_RELEASE_WEBHOOK`, `RELEASE_NOTES_REPO`,
 `RELEASE_NOTES_FOOTER`.
+
+In GitHub Actions (`$GITHUB_OUTPUT` set), the generated `notes` (markdown) and
+`highlights` (JSON array of the bullet lines) are exposed as step outputs — wire
+them to the GitHub release body and/or a marketing changelog. `--changelog-format
+json` writes `{ version, date, notes, highlights }`; `md` writes a
+`## <version> — <date>` section under a leading `# Changelog` title. `--notes-file`
+reuses a prior job's notes so one generation can drive every changelog surface.
 
 ---
 
