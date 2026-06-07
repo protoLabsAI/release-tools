@@ -14,3 +14,6 @@ dist/
 .automaker/features/
 .automaker/checkpoints/
 .automaker/trajectory/
+
+# auto-mode runtime lock — never commit (tracking it conflicts every concurrent PR)
+.automaker-lock

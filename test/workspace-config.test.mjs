@@ -33,6 +33,7 @@ function goodManifest() {
       '.automaker/features/',
       '.automaker/checkpoints/',
       '.automaker/trajectory/',
+      '.automaker-lock',
     ].join('\n')
   );
 }
@@ -134,7 +135,7 @@ test('missing automaker transient ignores is a WARN, not an error', () => {
   // Everything required present + ignored, but no transient-dir ignores.
   const m = manifest(
     ['.beads/issues.jsonl', '.automaker/settings.json'],
-    '.beads/beads.db\n.worktrees/'
+    '.beads/beads.db\n.worktrees/\n.automaker-lock'
   );
   const r = evaluateStandard(m);
   assert.equal(r.ok, true, 'warn-only violation should not fail the standard');
@@ -151,13 +152,15 @@ test('missing automaker transient ignores is a WARN, not an error', () => {
 
 test('a bare repo (nothing) reports all errors + the warn', () => {
   const r = evaluateStandard(manifest([], ''));
-  // 4 errors: issues.jsonl, beads-db-gitignored, automaker-settings, worktrees
-  // (beads-db-not-committed passes — it's absent — so it is NOT a violation)
-  assert.equal(r.errorCount, 4);
+  // 5 errors: issues.jsonl, beads-db-gitignored, automaker-settings, worktrees,
+  // automaker-lock-gitignored. (beads-db-not-committed AND automaker-lock-not-committed
+  // pass — both absent — so they are NOT violations.)
+  assert.equal(r.errorCount, 5);
   // 2 warns: automaker-transient-gitignored + workflow-security-lint
   assert.equal(r.warnCount, 2);
   assert.equal(r.ok, false);
   assert.ok(r.passed.includes('beads-db-not-committed'));
+  assert.ok(r.passed.includes('automaker-lock-not-committed'));
 });
 
 test('each rule carries a fix hint', () => {
