@@ -56,6 +56,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 
+import { buildFallbackNotes } from '../lib/release-notes.mjs';
+
 // ─── Help ────────────────────────────────────────────────────────────────────
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
@@ -186,8 +188,11 @@ Each commit below includes the subject line and, where available, the commit bod
 
 ${commitBlocks}`,
     filteredCount: filtered.length,
+    commits: filtered,
   };
 }
+
+// buildFallbackNotes lives in ../lib/release-notes.mjs (pure + unit-tested).
 
 // ─── LLM call (protoLabs LiteLLM gateway, OpenAI-compatible) ─────────────────
 
@@ -205,32 +210,56 @@ async function callLLM(userPrompt) {
   const apiKey = process.env.GATEWAY_API_KEY;
   if (!apiKey) throw new Error('GATEWAY_API_KEY is not set');
 
-  const res = await fetch(`${LLM_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: LLM_MODEL,
-      // Set high enough to fit reasoning + the final answer; capping
-      // too low truncates mid-reasoning and leaks unfinished thinking
-      // into `content` (see comment on LLM_MODEL above).
-      max_tokens: 8192,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
-    }),
-  });
+  // The gateway can blip — a Cloudflare 524 origin timeout once lost an entire
+  // release announcement. Retry transient failures (network throws, 429, 5xx)
+  // with backoff; fail fast on other 4xx. The caller falls back to plain commit
+  // notes if every attempt fails, so a blip never drops the Discord post.
+  const delays = [0, 3000, 10000];
+  let lastErr;
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt] > 0) {
+      await new Promise((r) => setTimeout(r, delays[attempt]));
+      console.log(`Retrying LLM call (attempt ${attempt + 1})...`);
+    }
+    let res;
+    try {
+      res = await fetch(`${LLM_BASE_URL}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: LLM_MODEL,
+          // Set high enough to fit reasoning + the final answer; capping
+          // too low truncates mid-reasoning and leaks unfinished thinking
+          // into `content` (see comment on LLM_MODEL above).
+          max_tokens: 8192,
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: userPrompt },
+          ],
+        }),
+      });
+    } catch (e) {
+      // fetch() itself threw (DNS / connection reset / timeout) — transient.
+      lastErr = e;
+      console.warn(`LLM call failed (${e.message}) — will retry.`);
+      continue;
+    }
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`LLM API error ${res.status}: ${err}`);
+    if (res.ok) {
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content ?? '';
+    }
+
+    // Truncate — a 524 returns a full HTML error page that would flood the logs.
+    const body = (await res.text()).slice(0, 300);
+    lastErr = new Error(`LLM API error ${res.status}: ${body}`);
+    if (res.status !== 429 && res.status < 500) throw lastErr; // non-transient 4xx → fail fast
+    console.warn(`LLM API ${res.status} — will retry.`);
   }
-
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? '';
+  throw lastErr;
 }
 
 // ─── Discord ──────────────────────────────────────────────────────────────────
@@ -478,11 +507,11 @@ console.log(`Generating release notes: ${previousVersion} → ${version}`);
 const commits = getCommitsBetween(previousVersion, version);
 console.log(`Found ${commits.length} commits`);
 
-let { prompt: userPrompt, filteredCount } = buildUserPrompt(
-  version,
-  previousVersion,
-  commits,
-);
+let {
+  prompt: userPrompt,
+  filteredCount,
+  commits: filteredCommits,
+} = buildUserPrompt(version, previousVersion, commits);
 
 // Fallback: when dev→main is squash-merged, the tag-to-tag range only contains
 // "chore: release" commits. Try origin/dev which preserves the individual
@@ -500,6 +529,7 @@ if (filteredCount === 0) {
       );
       userPrompt = devResult.prompt;
       filteredCount = devResult.filteredCount;
+      filteredCommits = devResult.commits;
     }
   }
 }
@@ -516,4 +546,16 @@ if (filteredCount === 0) {
   process.exit(0);
 }
 
-await emitNotes(await callLLM(userPrompt));
+let notes;
+try {
+  notes = await callLLM(userPrompt);
+} catch (err) {
+  console.warn(`LLM rewrite failed after retries (${err.message}).`);
+}
+// Empty or failed rewrite → fall back to a plain commit list so the release is
+// still announced (a gateway blip must not silently drop the Discord post).
+if (!notes?.trim()) {
+  console.warn('Falling back to raw commit notes.');
+  notes = buildFallbackNotes(version, filteredCommits);
+}
+await emitNotes(notes);
