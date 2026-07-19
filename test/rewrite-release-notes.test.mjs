@@ -247,3 +247,38 @@ test('the word ceiling does not license dropping a required action', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── No invented capabilities (protoAgent v0.104.3) ─────────────────────────────────────
+// The first release generated AFTER the #52 fix kept consequences correctly — and invented a
+// feature: "The pairing page clearly indicates where the token was written." The console
+// source contains that string zero times. It reads as a plausible sibling of the two REAL
+// bullets beside it (a token is displayed; a prompt names file paths), which is what makes
+// this failure mode expensive: an invented capability is indistinguishable from a real one
+// until the reader goes looking for it.
+//
+// Root cause was in the prompt, not the model: "If commits are sparse, infer user impact from
+// what is present" licensed exactly this, and "group into 2–4 sections" read as a quota that
+// rewards padding.
+test('system prompt forbids inventing capabilities and requires commit traceability', () => {
+  const dir = makeRepo(2, ['v1.0.0']);
+  try {
+    const out = runDryRun(dir).stdout;
+    assert.match(out, /traceable to a specific commit/i);
+    // Impact-inference stays legal; existence-inference does not — the distinction is the fix.
+    assert.match(out, /never infer the EXISTENCE of a capability/i);
+    assert.doesNotMatch(out, /If commits are sparse, infer user impact from what is present/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the section range is a ceiling, not a quota to pad toward', () => {
+  const dir = makeRepo(2, ['v1.0.0']);
+  try {
+    const out = runDryRun(dir).stdout;
+    assert.match(out, /ceiling, not a quota/i);
+    assert.match(out, /Never pad/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
