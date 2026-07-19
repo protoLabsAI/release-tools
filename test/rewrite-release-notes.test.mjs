@@ -196,3 +196,54 @@ test('--changelog json warns loudly (not silently) when the existing file is mal
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── Prompt guarantees (protoAgent v0.104.0–v0.104.2) ───────────────────────────────────
+// Four consecutive releases needed the generated notes hand-corrected before shipping, and
+// every failure was the same shape: the rewrite kept WHAT changed and dropped what the
+// reader must DO about it.
+//
+//   v0.104.0  dropped "peers must be on protolabs-a2a >= 0.3.0" (breaking, no dual-read)
+//   v0.104.0  described a `no_delete` fence that REFUSES deletion as one that "gates
+//             deletion behind approval" — two mechanisms compressed into one bullet, and
+//             the safety control described as weaker than it is
+//   v0.104.1  dropped that the flow MINTS an auth token, so other clients start 401ing
+//   v0.104.2  dropped the manual recovery for an app too broken to run its own updater
+//
+// That was structural, not luck: "one sentence per bullet" + a word ceiling + "user-facing
+// impact only" squeezes out exactly these, because a consequence is always a SECOND
+// sentence. These assertions pin the instructions that fix it.
+test('system prompt requires actions, consequences and recovery steps to survive', () => {
+  const dir = makeRepo(2, ['v1.0.0']);
+  try {
+    const out = runDryRun(dir).stdout;
+    // A second sentence must be explicitly permitted, or the one-sentence rule wins.
+    assert.match(out, /second sentence/i);
+    assert.match(out, /breaking change or required upgrade/i);
+    assert.match(out, /recovery step/i);
+    // The worst case: the bug stops the app updating itself, so the notes are the only route.
+    assert.match(out, /updating itself|update itself/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('system prompt forbids merging mechanisms or softening a stated limitation', () => {
+  const dir = makeRepo(2, ['v1.0.0']);
+  try {
+    const out = runDryRun(dir).stdout;
+    assert.match(out, /NEVER merge two distinct mechanisms/);
+    assert.match(out, /Do not soften or generalise/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the word ceiling does not license dropping a required action', () => {
+  const dir = makeRepo(2, ['v1.0.0']);
+  try {
+    const out = runDryRun(dir).stdout;
+    assert.match(out, /ceiling is not a reason to drop/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
