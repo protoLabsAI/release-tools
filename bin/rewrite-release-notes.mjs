@@ -157,11 +157,26 @@ Voice: technical, direct, pragmatic. Speak to builders — assume they understan
 
 Rules:
 - Group into 2–4 themed sections with bold markdown headers (e.g. **Performance**, **Developer Experience**)
-- One sentence per bullet, present tense, user-facing impact only
+- One sentence per bullet, present tense, user-facing impact only — EXCEPT where a rule below
+  requires a second sentence
+- NEVER merge two distinct mechanisms, modes, or settings into one bullet. If a commit
+  describes two behaviours, give them two bullets or name both explicitly. Compressing them
+  into one sentence has produced notes that described a safety control as weaker than it is.
+- Keep what the reader must ACT on. A bullet may (and should) run to a second sentence when the
+  change carries any of:
+    · a breaking change or required upgrade ("peers must be on X >= N; there is no dual-read")
+    · an action the reader must take, or a side effect they should know about
+      (a credential is created, other clients will start failing auth, a restart is needed)
+    · a recovery step for anyone already broken by the thing being fixed — ESPECIALLY when the
+      bug prevents the app from updating itself, since then these notes are the only route out
+  State it plainly, including the exact file/setting/command where one applies. Dropping the
+  consequence and keeping only the feature is the single most common failure in these notes.
+- Do not soften or generalise a stated limitation, refusal, or requirement. "Refused outright"
+  must not become "gated"; "must upgrade" must not become "works best with".
 - Skip: merge commits, version bumps, CI config, internal chores, "promote" commits
 - No marketing language, no AI hype words ("revolutionary", "game-changing", "powerful")
 - No emojis anywhere
-- Max 300 words total
+- Max 400 words total (the ceiling is not a reason to drop a required action or recovery step)
 - Output: one-line intro sentence, then the sections with bullets
 - Do not include a version number in the output
 - Always write the release notes — never ask clarifying questions or say you need more information
