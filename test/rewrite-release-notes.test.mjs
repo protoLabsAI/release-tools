@@ -345,3 +345,23 @@ test('paragraph-only notes (no bullets at all) trip a loud warning', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a single unwrapped prose blob (no newlines) also trips the warning', () => {
+  const dir = tmp();
+  try {
+    // A model writing one long paragraph emits no hard newlines — the warning
+    // must not hide behind a multi-line requirement.
+    writeFileSync(
+      join(dir, 'notes.md'),
+      'This release improves reliability, hardens the gateway retry path, and exposes new outputs.',
+    );
+    const r = spawnSync('node', [CLI, 'v5.0.1', '--notes-file', join(dir, 'notes.md')], {
+      cwd: dir,
+      encoding: 'utf8',
+    });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(`${r.stdout}${r.stderr}`, /notes contain no bullet list/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

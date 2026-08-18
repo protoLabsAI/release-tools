@@ -73,6 +73,12 @@ test('extractHighlights does not mistake prose, headers, or rules for bullets', 
   assert.deepEqual(extractHighlights(notes), ['the only real bullet']);
 });
 
+test('extractHighlights skips every horizontal-rule spelling', () => {
+  // `- - -` and `* * *` are rules, not a bullet whose text is "- -".
+  const notes = '- - -\n* * *\n___\n- a real bullet';
+  assert.deepEqual(extractHighlights(notes), ['a real bullet']);
+});
+
 // ── normalizeListMarkers ───────────────────────────────────────────────────────
 
 test('normalizeListMarkers rewrites •/*/+ bullets to `- `', () => {
@@ -87,5 +93,12 @@ test('normalizeListMarkers keeps indentation on nested bullets', () => {
 test('normalizeListMarkers leaves headers, bold, rules, and prose untouched', () => {
   const notes =
     '**Performance**\n*emphasis* stays\n---\nPlain prose line.\n1. numbered stays numbered';
+  assert.equal(normalizeListMarkers(notes), notes);
+});
+
+test('normalizeListMarkers does not break spaced horizontal rules into bullets', () => {
+  // `* * *` starts with a `* ` marker shape but is a rule — rewriting it to
+  // `- * *` would turn it into a bogus bullet.
+  const notes = '* * *\n- - -\n_ _ _';
   assert.equal(normalizeListMarkers(notes), notes);
 });

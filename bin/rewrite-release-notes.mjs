@@ -470,9 +470,11 @@ async function emitNotes(rawNotes) {
   const highlights = extractHighlights(notes);
   // Tripwire for the next model-formatting drift (the 2026-08-15 gateway
   // cutover made the model emit paragraphs under the headers — no bullets at
-  // all, so `highlights` shipped empty for days before anyone noticed). Warn,
-  // don't fail: the release must still go out.
-  if (highlights.length === 0 && notes.trim().includes('\n')) {
+  // all, so `highlights` shipped empty for days before anyone noticed). Warn
+  // on ANY bullet-less notes — a single unwrapped prose blob with no newlines
+  // is exactly how a model writes a paragraph, and a false positive costs one
+  // log line. Warn, don't fail: the release must still go out.
+  if (highlights.length === 0 && notes.trim() !== '') {
     console.warn(
       'WARNING: generated notes contain no bullet list — the `highlights` output is empty ' +
         'and changelog/PR entries built from it will have no list. The model likely wrote ' +
