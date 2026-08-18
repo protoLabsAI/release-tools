@@ -37,9 +37,11 @@ jobs:
 
       # Tokenless OIDC Trusted Publishing requires npm >= 11.5.1. Node 20 ships
       # npm 10.x, which silently falls back to (placeholder) token auth and
-      # 404s against the registry. Pin a recent npm so the OIDC exchange runs.
+      # 404s against the registry. Pin npm 11 (not @latest): npm 12 dropped
+      # Node 20 support (EBADENGINE — broke the v2.4.1 cut), and 11.x is the
+      # known-good line for this publish path.
       - name: Upgrade npm for OIDC Trusted Publishing
-        run: npm install -g npm@latest
+        run: npm install -g npm@11
 
       - name: Read version from package.json
         id: version
