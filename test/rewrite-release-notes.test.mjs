@@ -282,3 +282,86 @@ test('the section range is a ceiling, not a quota to pad toward', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── Bullets are the contract, not a style (protoAgent v0.138.0) ────────────────────────
+// The 2026-08-15 gateway cutover changed the model behind `protolabs/fast` without changing
+// the alias. The first releases generated after it (protoAgent v0.137.0–v0.138.0) kept the
+// intro and the bold headers but wrote a PROSE PARAGRAPH under each header — zero bullets.
+// "then the sections with bullets" was the only formatting instruction, and the new model
+// read "sections" as licence for paragraphs. Downstream, extractHighlights found no list
+// lines, so the `highlights` output shipped `[]` and changelog/PR entries lost their list.
+// The prompt now pins the marker itself and says why prose is not an option.
+test('system prompt demands `- ` bullet lists under headers and forbids paragraphs', () => {
+  const dir = makeRepo(2, ['v1.0.0']);
+  try {
+    const out = runDryRun(dir).stdout;
+    assert.match(out, /every line starts with "- "/);
+    assert.match(out, /Never write paragraphs\s+under a header/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('non-markdown bullets (•) are normalized to `- ` across every sink', () => {
+  const dir = tmp();
+  try {
+    writeFileSync(
+      join(dir, 'notes.md'),
+      'Intro line.\n\n**Setup**\n• first thing\n• second thing\n',
+    );
+    const ghOut = join(dir, 'gh_output');
+    writeFileSync(ghOut, '');
+    const r = spawnSync(
+      'node',
+      [CLI, 'v4.0.0', '--notes-file', join(dir, 'notes.md'), '--out', join(dir, 'out.md')],
+      { cwd: dir, encoding: 'utf8', env: { ...process.env, GITHUB_OUTPUT: ghOut } },
+    );
+    assert.equal(r.status, 0, r.stderr);
+    const out = readFileSync(join(dir, 'out.md'), 'utf8');
+    assert.doesNotMatch(out, /•/);
+    assert.match(out, /- first thing/);
+    // The list survives into the structured output too.
+    assert.match(readFileSync(ghOut, 'utf8'), /highlights=\["first thing","second thing"\]/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('paragraph-only notes (no bullets at all) trip a loud warning', () => {
+  const dir = tmp();
+  try {
+    // The exact v0.138.0 failure shape: intro + bold headers + prose, no list lines.
+    writeFileSync(
+      join(dir, 'notes.md'),
+      'v0.138.0 introduces improvements.\n\n**Context Lifecycle**\nThe agent now applies rolling cache breakpoints. Dynamic context composes once per turn.\n',
+    );
+    const r = spawnSync('node', [CLI, 'v5.0.0', '--notes-file', join(dir, 'notes.md')], {
+      cwd: dir,
+      encoding: 'utf8',
+    });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(`${r.stdout}${r.stderr}`, /notes contain no bullet list/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a single unwrapped prose blob (no newlines) also trips the warning', () => {
+  const dir = tmp();
+  try {
+    // A model writing one long paragraph emits no hard newlines — the warning
+    // must not hide behind a multi-line requirement.
+    writeFileSync(
+      join(dir, 'notes.md'),
+      'This release improves reliability, hardens the gateway retry path, and exposes new outputs.',
+    );
+    const r = spawnSync('node', [CLI, 'v5.0.1', '--notes-file', join(dir, 'notes.md')], {
+      cwd: dir,
+      encoding: 'utf8',
+    });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(`${r.stdout}${r.stderr}`, /notes contain no bullet list/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

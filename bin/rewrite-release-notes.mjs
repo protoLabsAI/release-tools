@@ -56,7 +56,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 
-import { buildFallbackNotes } from '../lib/release-notes.mjs';
+import {
+  buildFallbackNotes,
+  extractHighlights,
+  normalizeListMarkers,
+} from '../lib/release-notes.mjs';
 
 // ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -177,7 +181,10 @@ Rules:
 - No marketing language, no AI hype words ("revolutionary", "game-changing", "powerful")
 - No emojis anywhere
 - Max 400 words total (the ceiling is not a reason to drop a required action or recovery step)
-- Output: one-line intro sentence, then the sections with bullets
+- Output: one-line intro sentence, then the sections. Under each bold header, write ONLY a
+  markdown bullet list — every line starts with "- " (hyphen, space). Never write paragraphs
+  under a header: downstream tooling builds changelogs and PR entries from the bullet lines,
+  so prose that is not a bullet is dropped on the floor.
 - Do not include a version number in the output
 - Always write the release notes — never ask clarifying questions or say you need more information
 - Every bullet must be traceable to a specific commit below. Infer the user-facing IMPACT of a
@@ -347,20 +354,8 @@ async function postToDiscord(repoSlug, version, notes) {
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-/**
- * Flatten the generated markdown into a list of user-facing change lines — the
- * bullet items, with the `- `/`* ` marker stripped. Section headers + the intro
- * sentence are dropped. Repos that keep a structured changelog (one entry = an
- * array of change strings) build their entry from this.
- */
-function extractHighlights(notes) {
-  return notes
-    .split('\n')
-    .map((l) => l.trim())
-    .filter((l) => /^[-*]\s+/.test(l))
-    .map((l) => l.replace(/^[-*]\s+/, '').trim())
-    .filter(Boolean);
-}
+// extractHighlights + normalizeListMarkers live in ../lib/release-notes.mjs
+// (pure + unit-tested).
 
 /** Prepend a dated section, keeping a leading `# H1` title at the very top. */
 function prependMarkdownChangelog(existing, version, date, notes) {
@@ -463,11 +458,29 @@ if (postDiscord && !repoSlug) {
 
 // Emit the notes to every requested sink: stdout, Action outputs, a notes file,
 // a changelog file, and/or Discord. Shared by the reuse path and the LLM path.
-async function emitNotes(notes) {
+async function emitNotes(rawNotes) {
+  // Standardize bullet markers first so every sink sees the same real markdown
+  // list (`•` is not a list marker to GitHub — a `•` block renders as one
+  // run-on paragraph in a PR body or CHANGELOG.md).
+  const notes = normalizeListMarkers(rawNotes);
+
   console.log('\n── Release Notes ──\n');
   console.log(notes);
 
   const highlights = extractHighlights(notes);
+  // Tripwire for the next model-formatting drift (the 2026-08-15 gateway
+  // cutover made the model emit paragraphs under the headers — no bullets at
+  // all, so `highlights` shipped empty for days before anyone noticed). Warn
+  // on ANY bullet-less notes — a single unwrapped prose blob with no newlines
+  // is exactly how a model writes a paragraph, and a false positive costs one
+  // log line. Warn, don't fail: the release must still go out.
+  if (highlights.length === 0 && notes.trim() !== '') {
+    console.warn(
+      'WARNING: generated notes contain no bullet list — the `highlights` output is empty ' +
+        'and changelog/PR entries built from it will have no list. The model likely wrote ' +
+        'paragraphs instead of bullets; check the model behind RELEASE_NOTES_MODEL.',
+    );
+  }
   writeGithubOutputs(notes, highlights);
 
   if (outFile) {
