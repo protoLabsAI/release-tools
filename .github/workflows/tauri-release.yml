@@ -90,20 +90,22 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
         if: inputs.pnpm-version != ''
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@ac6db6d3c1f721f886538a378a2d73e85697340a # v6
         with:
           version: ${{ inputs.pnpm-version }}
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: ${{ inputs.node-version }}
           cache: ${{ inputs.pnpm-version != '' && 'pnpm' || 'npm' }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
 
       - name: Add macOS Rust targets (universal)
         if: matrix.platform == 'macos'
@@ -131,7 +133,9 @@ jobs:
 
       - name: Pre-build command
         if: inputs.pre-build-command != ''
-        run: ${{ inputs.pre-build-command }}
+        env:
+          PRE_BUILD_CMD: ${{ inputs.pre-build-command }}
+        run: bash -c "$PRE_BUILD_CMD"
         shell: bash
 
       # ─── macOS: write the App Store Connect API key to disk ──────────────
@@ -154,7 +158,7 @@ jobs:
       # ─── macOS: sign + notarize + updater-sign ────────────────────────────
       - name: Build (macOS, signed + notarized)
         if: matrix.platform == 'macos'
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0
         env:
           # Code signing
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -180,7 +184,7 @@ jobs:
       # ─── Windows: SSL.com eSigner + updater-sign ──────────────────────────
       - name: Build (Windows, signed via eSigner)
         if: matrix.platform == 'windows'
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -194,7 +198,7 @@ jobs:
       # ─── Linux: AppImage, no signing ──────────────────────────────────────
       - name: Build (Linux, AppImage)
         if: matrix.platform == 'linux'
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -202,7 +206,7 @@ jobs:
           projectPath: ${{ inputs.project-path }}
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: tauri-${{ matrix.platform }}
           path: |
@@ -228,14 +232,16 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: dist
           merge-multiple: true
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: ${{ inputs.node-version }}
 
@@ -253,7 +259,7 @@ jobs:
             --out latest.json
 
       - name: Upload binaries to R2 (versioned prefix)
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.R2_ACCOUNT_ID }}
@@ -267,7 +273,7 @@ jobs:
             done
 
       - name: Upload updater manifest to R2 (latest.json, no-cache)
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd # v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.R2_ACCOUNT_ID }}
@@ -281,7 +287,7 @@ jobs:
 
       - name: Create draft GitHub Release
         if: inputs.draft-github-release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
         with:
           files: dist/**/*
           draft: true
