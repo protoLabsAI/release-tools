@@ -365,3 +365,34 @@ test('a single unwrapped prose blob (no newlines) also trips the warning', () =>
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── Docs-only commits are not shipped features (release-tools#51) ───────────────
+// An ADR (Architecture Decision Record) records a PLAN; a `docs:`/`doc:` commit is a
+// guide, README, or ADR — an explanation, not shipped behaviour. A docs commit that
+// reached the LLM got described as delivered functionality nobody built, so they are
+// stripped from the commit list AND the model is told ADRs are plans, not features.
+test('docs-only (ADR/guide) commits are excluded from the user prompt; real features survive', () => {
+  const dir = makeRepo(2, ['v1.0.0']);
+  const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+  git('commit', '-q', '--allow-empty', '-m', 'docs(adr): ADR 0082 — per-chat ACP runtime');
+  git('commit', '-q', '--allow-empty', '-m', 'docs: rewrite the setup guide');
+  git('commit', '-q', '--allow-empty', '-m', 'doc(readme): fix a broken link');
+  git('commit', '-q', '--allow-empty', '-m', 'feat: ship the per-chat ACP runtime');
+  git('tag', 'v1.1.0');
+  try {
+    const r = runDryRun(dir);
+    assert.equal(r.status, 0, r.stderr);
+    // Isolate the user prompt — the system prompt legitimately mentions "docs-only".
+    const userPrompt = r.stdout.split('── User Prompt ──')[1] ?? '';
+    // None of the docs/ADR prefixes (scoped or bare, docs: and doc:) reach the LLM.
+    assert.doesNotMatch(userPrompt, /ADR 0082/);
+    assert.doesNotMatch(userPrompt, /rewrite the setup guide/);
+    assert.doesNotMatch(userPrompt, /fix a broken link/);
+    // ...but a real feature commit in the same range still does.
+    assert.match(userPrompt, /ship the per-chat ACP runtime/);
+    // And the system prompt tells the model an ADR is a plan, not a shipped feature.
+    assert.match(r.stdout, /ADR .*is a PLAN, not a shipped feature/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
