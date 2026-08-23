@@ -28,7 +28,8 @@
     "action.yml",
     "README.md",
     "LICENSE",
-    ".github/workflows/tauri-release.yml"
+    ".github/workflows/tauri-release.yml",
+    ".github/workflows/plugin-release.yml"
   ],
   "publishConfig": {
     "access": "public",
