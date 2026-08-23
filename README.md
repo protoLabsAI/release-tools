@@ -187,6 +187,47 @@ and writes a manifest in the exact shape Tauri's updater expects. Exits
 non-zero if any binary is missing its signature, so the `publish` job fails
 loudly when signing didn't run.
 
+## Plugin release workflow
+
+A reusable workflow for the **plugin release** ritual: read the version from
+`protoagent.plugin.yaml`, tag, create a GitHub Release with LLM-themed notes,
+and post to Discord. Same lifecycle as `rewrite-release-notes`, packaged as a
+thin `workflow_call` any plugin repo can adopt in one file.
+
+### Use it
+
+```yaml
+# .github/workflows/release.yml in your plugin repo
+name: Release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.head_commit.message, 'chore: release v')
+    uses: protoLabsAI/release-tools/.github/workflows/plugin-release.yml@v2
+    secrets: inherit
+```
+
+### Inputs
+
+| Input    | Required | Default                                   | Description          |
+| -------- | -------- | ----------------------------------------- | -------------------- |
+| `runner` | no       | `namespace-profile-protolabs-linux` (via `NSC_RUNNER`) | Runner label for the release job. |
+
+### Required secrets (pass via `secrets: inherit`)
+
+- `GATEWAY_API_KEY` — bearer token for the protoLabs LLM gateway (release-note generation)
+- `DISCORD_RELEASE_WEBHOOK` — Discord webhook URL for the release channel
+- `GH_PAT` — (optional) personal access token for tag push; falls back to `GITHUB_TOKEN`
+
 ## Branch protection defaults
 
 `apply-branch-protection` applies the protoLabs recommended branch protection
