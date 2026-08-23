@@ -177,7 +177,8 @@ Rules:
   consequence and keeping only the feature is the single most common failure in these notes.
 - Do not soften or generalise a stated limitation, refusal, or requirement. "Refused outright"
   must not become "gated"; "must upgrade" must not become "works best with".
-- Skip: merge commits, version bumps, CI config, internal chores, "promote" commits
+- Skip: merge commits, version bumps, CI config, internal chores, docs-only commits (ADRs, guides, READMEs), "promote" commits
+- An ADR (Architecture Decision Record) is a PLAN, not a shipped feature. Never describe an ADR commit as delivering functionality.
 - No marketing language, no AI hype words ("revolutionary", "game-changing", "powerful")
 - No emojis anywhere
 - Max 400 words total (the ceiling is not a reason to drop a required action or recovery step)
@@ -206,6 +207,14 @@ function buildUserPrompt(version, previousVersion, commits) {
       !subject.startsWith('chore: release') &&
       !subject.startsWith('promote') &&
       !subject.startsWith('chore: bump') &&
+      // Docs-only commits (conventional `docs:`/`doc:` prefixes, scoped or not)
+      // are ADRs, guides, or READMEs — a PLAN or explanation, not shipped
+      // behaviour. An ADR read as a feature gets described as delivered work
+      // nobody built, so strip them before they reach the LLM.
+      !subject.startsWith('docs:') &&
+      !subject.startsWith('docs(') &&
+      !subject.startsWith('doc:') &&
+      !subject.startsWith('doc(') &&
       c.length > 0
     );
   });
