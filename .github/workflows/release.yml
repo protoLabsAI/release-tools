@@ -92,6 +92,31 @@ jobs:
             -m "Release ${{ steps.version.outputs.tag }}"
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${{ steps.version.outputs.tag }}"
 
+      # The major alias (vX) is what CONSUMERS pin — every plugin's release.yml calls
+      # `release-tools/.github/workflows/plugin-release.yml@v2`. Moving it here, and only
+      # here, is what makes that pin mean "the newest vX.Y.Z RELEASE" (the actions/checkout@v4
+      # contract) instead of "whatever is on main".
+      #
+      # It had drifted to exactly that: v2 was hand-moved to main's HEAD, so three unreleased
+      # commits — including plugin-release.yml itself and a security remediation — were running
+      # in every consumer's release with `secrets: inherit`, and no released version existed
+      # that a consumer could pin instead. Automating it removes the hand step that caused it.
+      #
+      # Not gated on tag_exists: re-running a release should re-align the alias, which is the
+      # cheap way to repair a drifted one.
+      - name: Move the major alias
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          MAJOR="v$(printf '%s' "${TAG#v}" | cut -d. -f1)"
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name  "github-actions[bot]"
+          # Point at the release COMMIT (peeled), never at another tag object.
+          git tag -f -a "$MAJOR" -m "$MAJOR -> $TAG" "$TAG^{commit}"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$MAJOR"
+          echo "major alias $MAJOR now points at $TAG"
+
       - name: Publish to npm
         # Auth via org automation token. The package's publishing access allows
         # token bypass of 2FA; OIDC Trusted Publishing was attempted first but
