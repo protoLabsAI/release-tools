@@ -118,16 +118,21 @@ jobs:
           echo "major alias $MAJOR now points at $TAG"
 
       - name: Publish to npm
-        # Auth via org automation token. The package's publishing access allows
-        # token bypass of 2FA; OIDC Trusted Publishing was attempted first but
-        # the registry-side grant wasn't authorizing, so we use a token.
-        # NPM_TOKEN is SELECTED-visibility (empty if this repo isn't in its
-        # list) → fall through to the ALL-visibility NPM_PUBLISH_TOKEN.
-        # --provenance still signs via id-token. Switch back to tokenless OIDC
-        # once the npm trusted-publisher grant is confirmed.
+        # TOKENLESS — OIDC Trusted Publishing. The grant is configured on the package
+        # (GitHub Actions / protolabsai / release-tools / release.yml, no environment),
+        # which is what the previous comment here was waiting on.
+        #
+        # NODE_AUTH_TOKEN is deliberately NOT set. A token takes PRECEDENCE over OIDC, so
+        # setting one means npm never attempts the trusted-publisher exchange at all — the
+        # fallback added while the grant was unconfirmed was itself bypassing the grant once
+        # it existed. That is what failed the v2.5.0 cut: `E404` on PUT, which is npm's
+        # auth-failure shape, as the automation token stopped being accepted for direct
+        # publishing (npm is restricting tokens that bypass 2FA).
+        #
+        # Requirements, all satisfied above: npm >= 11.5.1 (the `npm install -g npm@11` step),
+        # `id-token: write` on the job, and the workflow FILENAME matching the grant exactly.
+        # Renaming this file breaks publishing until the grant is updated to match.
         if: steps.version.outputs.npm_published != 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN || secrets.NPM_PUBLISH_TOKEN }}
         run: npm publish --access public --provenance
 
       - name: Create GitHub release
