@@ -31,10 +31,20 @@ jobs:
           persist-credentials: false
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
 
+      # NO `registry-url:` — deliberately. It makes setup-node write an .npmrc containing
+      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` AND export NODE_AUTH_TOKEN as
+      # the literal placeholder `XXXXX-XXXXX-XXXXX-XXXXX`. npm then authenticates with that
+      # placeholder and the registry answers `E404` on PUT (its auth-failure shape) — which
+      # is what failed both v2.5.0 attempts, and why simply removing the token from the
+      # publish step changed nothing: setup-node had already put one in the environment.
+      #
+      # package.json's publishConfig already pins
+      # {"access":"public","registry":"https://registry.npmjs.org/"}, so registry-url bought
+      # nothing here except the broken auth. Without it there is no authToken in play and
+      # npm >= 11.5.1 performs the OIDC trusted-publisher exchange.
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
-          registry-url: "https://registry.npmjs.org/"
 
       # Tokenless OIDC Trusted Publishing requires npm >= 11.5.1. Node 20 ships
       # npm 10.x, which silently falls back to (placeholder) token auth and
