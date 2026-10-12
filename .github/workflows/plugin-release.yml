@@ -42,6 +42,13 @@ jobs:
     name: Tag + release notes + Discord
     runs-on: ${{ inputs.runner || vars.NSC_RUNNER || 'namespace-profile-protolabs-linux' }}
     timeout-minutes: 10
+    # Serialize releases per calling repo: the tag-exists check and the tag push are
+    # separate steps, so two near-simultaneous triggers (a `chore: release` push plus a
+    # dispatch) could both see exists=false. Queue rather than cancel — a cancelled
+    # run mid-release would leave a tag with a placeholder release body.
+    concurrency:
+      group: plugin-release-${{ github.repository }}
+      cancel-in-progress: false
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.head_commit.message, 'chore: release v')
