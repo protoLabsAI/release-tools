@@ -55,7 +55,7 @@
  * semver-sorted tags (latest as `version`, previous as `prev-version`).
  */
 
-import { execFileSync, execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import {
   appendFileSync,
   existsSync,
@@ -91,28 +91,6 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 
 // ─── Git helpers ─────────────────────────────────────────────────────────────
 
-function run(cmd) {
-  return execSync(cmd, { encoding: 'utf8' }).trim();
-}
-
-function getTags() {
-  const tags = run('git tag --sort=-v:refname').split('\n').filter(Boolean);
-  return { latest: tags[0], previous: tags[1] };
-}
-
-/**
- * The repo's root commit — the range start for a first release (no prior tag).
- * `--max-parents=0` can list more than one root for grafted/merged histories;
- * the last entry is the earliest, so the range covers the whole history.
- */
-function getRootCommit() {
-  try {
-    const roots = run('git rev-list --max-parents=0 HEAD').split('\n').filter(Boolean);
-    return roots[roots.length - 1] ?? null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * `git <args>` without a shell. Refs come from CLI args / workflow inputs, and a
@@ -125,6 +103,26 @@ function git(...args) {
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
 }
+
+function getTags() {
+  const tags = git('tag', '--sort=-v:refname').split('\n').filter(Boolean);
+  return { latest: tags[0], previous: tags[1] };
+}
+
+/**
+ * The repo's root commit — the range start for a first release (no prior tag).
+ * `--max-parents=0` can list more than one root for grafted/merged histories;
+ * the last entry is the earliest, so the range covers the whole history.
+ */
+function getRootCommit() {
+  try {
+    const roots = git('rev-list', '--max-parents=0', 'HEAD').split('\n').filter(Boolean);
+    return roots[roots.length - 1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 
 function getCommitsBetween(fromTag, toTag) {
   const SEPARATOR = '<<<COMMIT>>>';
@@ -176,7 +174,7 @@ function showFileAt(ref, path) {
  */
 function detectRepoSlug() {
   try {
-    const url = run('git remote get-url origin');
+    const url = git('remote', 'get-url', 'origin');
     const m = url.match(/github\.com[:/]([^/]+\/[^/.]+)/);
     return m ? m[1] : null;
   } catch {
@@ -625,17 +623,20 @@ if (isBundle) {
   const before = showFileAt(previousVersion, bundleManifest);
   const after = showFileAt(version, bundleManifest);
   if (!after) {
+    // No manifest at the release tag means we can't say what it pins. Diffing against
+    // '' would report every member as REMOVED — a confident, wrong section — so skip.
     console.warn(
       `WARNING: ${bundleManifest} not found at ${version} — no member-pin diff for these notes.`,
     );
+  } else {
+    const diff = diffBundlePins(before, after);
+    pinSection = formatPinChanges(diff);
+    console.log(
+      hasPinChanges(diff)
+        ? `Member pin changes ${previousVersion} → ${version}:\n${pinSection}`
+        : `No member pin changes in ${bundleManifest} ${previousVersion} → ${version}.`,
+    );
   }
-  const diff = diffBundlePins(before, after);
-  pinSection = formatPinChanges(diff);
-  console.log(
-    hasPinChanges(diff)
-      ? `Member pin changes ${previousVersion} → ${version}:\n${pinSection}`
-      : `No member pin changes in ${bundleManifest} ${previousVersion} → ${version}.`,
-  );
 }
 const promptOpts = { bundle: isBundle, pinSection };
 const systemPrompt = isBundle ? SYSTEM_PROMPT + BUNDLE_PROMPT : SYSTEM_PROMPT;

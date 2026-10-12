@@ -448,3 +448,28 @@ test('--bundle-manifest keeps bump/release commits and puts the final pin diff i
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('--bundle-manifest missing at the release tag skips the pin section (never "all removed")', () => {
+  const dir = makeRepo(1, []);
+  const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+  writeFileSync(
+    join(dir, 'protoagent.bundle.yaml'),
+    'id: x\nplugins:\n  - { id: board, url: https://github.com/protoLabsAI/b, ref: v1.0.0 }\n',
+  );
+  git('add', '.');
+  git('commit', '-q', '-m', 'feat: bundle');
+  git('tag', 'v0.1.0');
+  git('rm', '-q', 'protoagent.bundle.yaml');
+  git('commit', '-q', '-m', 'feat: drop the manifest');
+  git('tag', 'v0.2.0');
+  try {
+    const r = runDryRun(dir, ['--bundle-manifest', 'protoagent.bundle.yaml']);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(`${r.stdout}${r.stderr}`, /not found at v0\.2\.0/);
+    const userPrompt = r.stdout.split('── User Prompt ──')[1] ?? '';
+    assert.doesNotMatch(userPrompt, /removed \(was/);
+    assert.doesNotMatch(userPrompt, /Member pin changes/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

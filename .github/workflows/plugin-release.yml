@@ -46,6 +46,9 @@ jobs:
     # separate steps, so two near-simultaneous triggers (a `chore: release` push plus a
     # dispatch) could both see exists=false. Queue rather than cancel — a cancelled
     # run mid-release would leave a tag with a placeholder release body.
+    # One definition: the resolve step recognises an unfinished release by this exact body.
+    env:
+      PLACEHOLDER: "Generating release notes…"
     concurrency:
       group: plugin-release-${{ github.repository }}
       cancel-in-progress: false
@@ -64,7 +67,6 @@ jobs:
           MANIFEST_INPUT: ${{ inputs.manifest }}
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          PLACEHOLDER: "Generating release notes…"
         run: |
           MANIFEST="$MANIFEST_INPUT"
           if [ -z "$MANIFEST" ]; then
@@ -150,7 +152,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.v.outputs.tag }}
-          PLACEHOLDER: "Generating release notes…"
         run: |
           # --verify-tag: release the tag that exists (new or orphan), never let gh
           # create a fresh one at the default branch's HEAD.
@@ -175,12 +176,16 @@ jobs:
           DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
 
       - name: Set the GitHub release body to the generated notes
-        if: steps.v.outputs.needs_notes == 'true' && steps.notes.outputs.notes != ''
+        # Also when the generator produced nothing (every commit filtered as maintenance):
+        # the body must not stay the placeholder, or every re-run would treat the release
+        # as unfinished.
+        if: steps.v.outputs.needs_notes == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           NOTES: ${{ steps.notes.outputs.notes }}
           KIND: ${{ steps.v.outputs.kind }}
           TAG: ${{ steps.v.outputs.tag }}
+          PREV: ${{ steps.v.outputs.prev }}
           REPO_NAME: ${{ steps.v.outputs.repo_name }}
         run: |
           : > .release-notes.md
@@ -188,5 +193,9 @@ jobs:
             printf '_protoAgent archetype release: **%s %s**. Member plugin pins are in `protoagent.bundle.yaml` at this tag._\n\n' \
               "$REPO_NAME" "$TAG" >> .release-notes.md
           fi
-          printf '%s' "$NOTES" >> .release-notes.md
+          if [ -n "$NOTES" ]; then
+            printf '%s' "$NOTES" >> .release-notes.md
+          else
+            printf 'Maintenance release: no user-facing changes since %s.\n' "$PREV" >> .release-notes.md
+          fi
           gh release edit "$TAG" --notes-file .release-notes.md
