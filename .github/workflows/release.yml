@@ -178,8 +178,18 @@ jobs:
         # On failure, surface the OIDC lines from npm's debug log so the real cause is in
         # the run log instead of the generic ENEEDAUTH.
         if: steps.version.outputs.npm_published != 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          if npm publish --access public --provenance; then
+          # Re-publishing an older tag (dispatch `ref: v2.6.0` after v2.7.0 is out) must
+          # not take npm's `latest` dist-tag — npm assigns it to whatever was published last.
+          DIST_TAG=latest
+          NEWEST=$(git tag --list 'v*.*.*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          if [ -n "$NEWEST" ] && [ "$NEWEST" != "$TAG" ]; then
+            DIST_TAG=backfill
+            echo "::notice::$TAG is older than $NEWEST — publishing under dist-tag '$DIST_TAG', not latest."
+          fi
+          if npm publish --access public --provenance --tag "$DIST_TAG"; then
             exit 0
           fi
           echo "::group::npm OIDC diagnostics (from the debug log)"
