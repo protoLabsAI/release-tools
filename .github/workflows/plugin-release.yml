@@ -1,13 +1,19 @@
 name: Plugin Release
 
 # Reusable workflow that tags, creates a GitHub Release with LLM-themed notes,
-# and posts to Discord — the fleet release ritual for protoAgent plugin repos.
-# Consumers call it from their own thin release.yml:
+# and posts to Discord — the fleet release ritual for protoAgent plugin repos
+# AND archetype (bundle) repos. Consumers call it from their own thin release.yml:
 #
 #   jobs:
 #     release:
 #       uses: protoLabsAI/release-tools/.github/workflows/plugin-release.yml@v2
 #       secrets: inherit
+#
+# The version comes from the repo's manifest `version:` line. The manifest is
+# auto-detected — `protoagent.plugin.yaml` (a plugin) wins, else
+# `protoagent.bundle.yaml` (an archetype bundle, ADR 0040) — or named with the
+# `manifest` input. An archetype release says so in the Discord embed title/footer
+# and the GitHub release body; a plugin release is unchanged.
 #
 # See the README's "Plugin release workflow" section for details.
 
@@ -16,6 +22,14 @@ on:
     inputs:
       runner:
         description: "Runner label for the release job."
+        required: false
+        type: string
+        default: ""
+      manifest:
+        description: >-
+          Manifest to read `version:` from. Default: auto-detect —
+          protoagent.plugin.yaml if present (plugin), else protoagent.bundle.yaml
+          (archetype bundle).
         required: false
         type: string
         default: ""
@@ -28,6 +42,13 @@ jobs:
     name: Tag + release notes + Discord
     runs-on: ${{ inputs.runner || vars.NSC_RUNNER || 'namespace-profile-protolabs-linux' }}
     timeout-minutes: 10
+    # Serialize releases per calling repo: the tag-exists check and the tag push are
+    # separate steps, so two near-simultaneous triggers (a `chore: release` push plus a
+    # dispatch) could both see exists=false. Queue rather than cancel — a cancelled
+    # run mid-release would leave a tag with a placeholder release body.
+    concurrency:
+      group: plugin-release-${{ github.repository }}
+      cancel-in-progress: false
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.head_commit.message, 'chore: release v')
@@ -39,10 +60,42 @@ jobs:
 
       - name: Resolve version + previous tag
         id: v
+        env:
+          MANIFEST_INPUT: ${{ inputs.manifest }}
+          REPO: ${{ github.repository }}
         run: |
-          VERSION=$(grep -E '^version:' protoagent.plugin.yaml | head -1 | sed -E 's/^version:[[:space:]]*//')
+          MANIFEST="$MANIFEST_INPUT"
+          if [ -z "$MANIFEST" ]; then
+            if [ -f protoagent.plugin.yaml ]; then
+              MANIFEST=protoagent.plugin.yaml
+            elif [ -f protoagent.bundle.yaml ]; then
+              MANIFEST=protoagent.bundle.yaml
+            else
+              echo "::error::No protoagent.plugin.yaml or protoagent.bundle.yaml at the repo root — nothing to version."
+              exit 1
+            fi
+          fi
+          if [ ! -f "$MANIFEST" ]; then
+            echo "::error::manifest '$MANIFEST' does not exist."
+            exit 1
+          fi
+          case "$MANIFEST" in
+            *bundle.yaml) KIND=archetype ;;
+            *) KIND=plugin ;;
+          esac
+          # Strip quotes and a trailing comment so `version: "0.7.0"  # note` reads 0.7.0.
+          # `|| true`: Actions runs bash with pipefail, and a grep miss must reach the
+          # explicit error below rather than exit silently here.
+          VERSION=$(grep -E '^version:' "$MANIFEST" | head -1 \
+            | sed -E 's/^version:[[:space:]]*//; s/[[:space:]]*#.*$//; s/^["'"'"']//; s/["'"'"']$//' || true)
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "::error::$MANIFEST has no semver top-level 'version:' line (got '$VERSION') — add e.g. 'version: 0.1.0'."
+            exit 1
+          fi
           TAG="v$VERSION"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "kind=$KIND" >> "$GITHUB_OUTPUT"
+          echo "repo_name=${REPO#*/}" >> "$GITHUB_OUTPUT"
           PREV=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.' | head -1)
           [ -z "$PREV" ] && PREV=$(git rev-list --max-parents=0 HEAD | head -1)
           echo "prev=$PREV" >> "$GITHUB_OUTPUT"
@@ -52,7 +105,7 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "Releasing $TAG (notes from $PREV)"
+          echo "Releasing $KIND $TAG from $MANIFEST (notes from $PREV)"
 
       - name: Create tag + GitHub release
         if: steps.v.outputs.exists == 'false'
@@ -72,6 +125,10 @@ jobs:
         with:
           version: ${{ steps.v.outputs.tag }}
           previous-version: ${{ steps.v.outputs.prev }}
+          # Archetypes say so in the embed; plugins keep the action's defaults
+          # ("<repo> <tag>" / "protoLabs · <repo>").
+          title: ${{ steps.v.outputs.kind == 'archetype' && format('Archetype · {0} {1}', steps.v.outputs.repo_name, steps.v.outputs.tag) || '' }}
+          footer: ${{ steps.v.outputs.kind == 'archetype' && format('protoLabs · archetype · {0}', steps.v.outputs.repo_name) || '' }}
         env:
           GATEWAY_API_KEY: ${{ secrets.GATEWAY_API_KEY }}
           DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
@@ -81,6 +138,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           NOTES: ${{ steps.notes.outputs.notes }}
+          KIND: ${{ steps.v.outputs.kind }}
+          TAG: ${{ steps.v.outputs.tag }}
+          REPO_NAME: ${{ steps.v.outputs.repo_name }}
         run: |
-          printf '%s' "$NOTES" > .release-notes.md
-          gh release edit "${{ steps.v.outputs.tag }}" --notes-file .release-notes.md
+          : > .release-notes.md
+          if [ "$KIND" = "archetype" ]; then
+            printf '_protoAgent archetype release: **%s %s**. Member plugin pins are in `protoagent.bundle.yaml` at this tag._\n\n' \
+              "$REPO_NAME" "$TAG" >> .release-notes.md
+          fi
+          printf '%s' "$NOTES" >> .release-notes.md
+          gh release edit "$TAG" --notes-file .release-notes.md

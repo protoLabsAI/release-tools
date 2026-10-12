@@ -190,9 +190,19 @@ loudly when signing didn't run.
 ## Plugin release workflow
 
 A reusable workflow for the **plugin release** ritual: read the version from
-`protoagent.plugin.yaml`, tag, create a GitHub Release with LLM-themed notes,
+the repo's manifest, tag, create a GitHub Release with LLM-themed notes,
 and post to Discord. Same lifecycle as `rewrite-release-notes`, packaged as a
-thin `workflow_call` any plugin repo can adopt in one file.
+thin `workflow_call` any plugin or archetype repo can adopt in one file.
+
+**Plugins and archetypes.** The manifest is auto-detected:
+`protoagent.plugin.yaml` (a plugin) if present, else `protoagent.bundle.yaml`
+(an archetype bundle). Either way the version is its top-level `version:` line,
+so an archetype bundle must carry one (`version: 0.7.0`) — protoAgent's bundle
+loader ignores the key; it exists for the release tag. An archetype release is
+labelled as one: the Discord embed reads `Archetype · <repo> vX.Y.Z` with an
+`archetype` footer, and the GitHub release body opens with an archetype line.
+Plugin releases are unchanged. A missing or non-semver `version:` fails the
+run instead of tagging `v`.
 
 ### Use it
 
@@ -209,18 +219,25 @@ permissions:
 
 jobs:
   release:
+    # Fork guard: name YOUR repo, or a fork cuts releases under the upstream name.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.event.head_commit.message, 'chore: release v')
+      github.repository == 'protoLabsAI/<your-repo>' &&
+      (github.event_name == 'workflow_dispatch' ||
+       startsWith(github.event.head_commit.message, 'chore: release v'))
     uses: protoLabsAI/release-tools/.github/workflows/plugin-release.yml@v2
     secrets: inherit
 ```
+
+Fire it with a `chore: release vX.Y.Z` squash subject on main, or
+`gh workflow run Release` once the version bump has merged. Re-runs on an
+existing tag are no-ops.
 
 ### Inputs
 
 | Input    | Required | Default                                   | Description          |
 | -------- | -------- | ----------------------------------------- | -------------------- |
 | `runner` | no       | `namespace-profile-protolabs-linux` (via `NSC_RUNNER`) | Runner label for the release job. |
+| `manifest` | no     | auto-detect (`protoagent.plugin.yaml`, else `protoagent.bundle.yaml`) | Manifest to read `version:` from. A `*bundle.yaml` manifest marks the release as an archetype. |
 
 ### Required secrets (pass via `secrets: inherit`)
 
