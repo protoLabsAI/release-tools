@@ -73,3 +73,12 @@ test('no movement → empty section; a manifest new in this release lists every 
   assert.equal(first.added.length, 4);
   assert.match(formatPinChanges(first), /`delegates` added \(built-in\)/);
 });
+
+test('a member moving from a release tag to the built-in reads "→ built-in", not "→ unpinned"', () => {
+  const before = 'plugins:\n  - { id: artifact, url: https://github.com/protoLabsAI/artifact-plugin, ref: v0.11.1 }\n';
+  const after = 'plugins:\n  - { id: artifact, builtin: true }\n';
+  const d = diffBundlePins(before, after);
+  assert.deepEqual(d.changed, [{ id: 'artifact', from: 'v0.11.1', to: 'built-in' }]);
+  assert.match(formatPinChanges(d), /- `artifact` v0\.11\.1 → built-in/);
+  assert.equal(hasPinChanges(diffBundlePins(after, after)), false);
+});
