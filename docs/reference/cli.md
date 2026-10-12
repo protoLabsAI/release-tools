@@ -32,10 +32,11 @@ Auto-detects the two most recent semver tags when positionals are omitted.
 | `--model <alias>`          | `protolabs/fast`               | Gateway model alias                              |
 | `--base-url <url>`         | `https://api.proto-labs.ai/v1` | Gateway base URL                                 |
 | `--repo <owner/name>`      | from git remote                | Repo for the release URL + footer                |
+| `--bundle-manifest <file>` | off                           | Archetype release: keep bump/release commits, feed the manifest's member-pin diff between the tags to the model, append it as **Member pins** |
 
 Env: `GATEWAY_API_KEY` (required for non-dry-run), `OPENAI_BASE_URL`,
 `RELEASE_NOTES_MODEL`, `DISCORD_RELEASE_WEBHOOK`, `RELEASE_NOTES_REPO`,
-`RELEASE_NOTES_FOOTER`.
+`RELEASE_NOTES_FOOTER`, `RELEASE_NOTES_BUNDLE_MANIFEST` (same as `--bundle-manifest`; the flag wins).
 
 In GitHub Actions (`$GITHUB_OUTPUT` set), the generated `notes` (markdown) and
 `highlights` (JSON array of the bullet lines) are exposed as step outputs — wire

@@ -56,6 +56,13 @@ inputs:
     description: 'Changelog format when changelog-file is set: md (default) | json.'
     required: false
     default: 'md'
+  bundle-manifest:
+    description: |
+      Archetype (bundle) release: path to the bundle manifest (protoagent.bundle.yaml).
+      Its member-pin diff between the two tags feeds the notes and is appended to them
+      as a "Member pins" section; pin-bump and release commits are kept, not filtered.
+    required: false
+    default: ''
 
 outputs:
   notes:
@@ -87,6 +94,7 @@ runs:
         RELEASE_NOTES_REPO: ${{ inputs.repo != '' && inputs.repo || github.repository }}
         RELEASE_NOTES_FOOTER: ${{ inputs.footer }}
         RELEASE_NOTES_TITLE: ${{ inputs.title }}
+        RELEASE_NOTES_BUNDLE_MANIFEST: ${{ inputs.bundle-manifest }}
       run: |
         FLAGS=()
         if [ "${{ inputs.dry-run }}" = "true" ]; then
@@ -101,5 +109,9 @@ runs:
           FLAGS+=("--changelog" "${{ inputs.changelog-file }}" \
                   "--changelog-format" "${{ inputs.changelog-format }}")
         fi
-        npx --yes -p '@protolabsai/release-tools@latest' rewrite-release-notes \
+        # Run the generator from THIS action's own checkout, not `npx …@latest`: the code
+        # then matches the ref the caller pinned (`@v2` = the newest v2 release), ships the
+        # moment it is tagged, and doesn't depend on npm publishing working. The CLI has
+        # no runtime dependencies, so no install step is needed.
+        node "$GITHUB_ACTION_PATH/bin/rewrite-release-notes.mjs" \
           "${{ inputs.version }}" "${{ inputs.previous-version }}" "${FLAGS[@]}"
