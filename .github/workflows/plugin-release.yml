@@ -63,6 +63,7 @@ jobs:
         env:
           MANIFEST_INPUT: ${{ inputs.manifest }}
           REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           MANIFEST="$MANIFEST_INPUT"
           if [ -z "$MANIFEST" ]; then
@@ -96,31 +97,57 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "kind=$KIND" >> "$GITHUB_OUTPUT"
           echo "repo_name=${REPO#*/}" >> "$GITHUB_OUTPUT"
-          PREV=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.' | head -1)
+          echo "manifest=$MANIFEST" >> "$GITHUB_OUTPUT"
+          # Previous = the newest v-tag that sorts BELOW this one — not simply the newest
+          # tag: when $TAG already exists (an orphan-tag re-run, below) the newest tag IS
+          # $TAG, and diffing it against itself yields empty notes.
+          PREV=$( { git tag --list 'v[0-9]*'; echo "$TAG"; } | sort -u -V \
+            | awk -v t="$TAG" '$0 == t { print p; exit } { p = $0 }')
           [ -z "$PREV" ] && PREV=$(git rev-list --max-parents=0 HEAD | head -1)
           echo "prev=$PREV" >> "$GITHUB_OUTPUT"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::$TAG already tagged — skipping (idempotent re-run)."
+          # Idempotency is per artifact: the tag and the GitHub release are checked
+          # separately. A run that pushed the tag but died before (or at)
+          # `gh release create` leaves an ORPHAN tag; gating everything on the tag alone
+          # made every re-run skip it forever. So a re-run creates whatever is missing,
+          # and only a tag WITH a release is a no-op.
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo "release_exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$TAG is already tagged and released — skipping (idempotent re-run)."
+          else
+            echo "release_exists=false" >> "$GITHUB_OUTPUT"
+            if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+              echo "::notice::$TAG is tagged but has no GitHub release (orphan tag) — creating the release."
+            fi
           fi
           echo "Releasing $KIND $TAG from $MANIFEST (notes from $PREV)"
 
-      - name: Create tag + GitHub release
-        if: steps.v.outputs.exists == 'false'
+      - name: Create tag
+        if: steps.v.outputs.tag_exists == 'false'
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Create GitHub release
+        if: steps.v.outputs.release_exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.v.outputs.tag }}
         run: |
-          git tag "${{ steps.v.outputs.tag }}"
-          git push origin "${{ steps.v.outputs.tag }}"
-          gh release create "${{ steps.v.outputs.tag }}" \
-            --title "${{ steps.v.outputs.tag }}" \
+          # --verify-tag: release the tag that exists (new or orphan), never let gh
+          # create a fresh one at the default branch's HEAD.
+          gh release create "$TAG" --verify-tag --title "$TAG" \
             --notes "Generating release notes…"
 
       - name: Generate notes + post to Discord
         id: notes
-        if: steps.v.outputs.exists == 'false'
+        if: steps.v.outputs.release_exists == 'false'
         uses: protoLabsAI/release-tools@v2
         with:
           version: ${{ steps.v.outputs.tag }}
@@ -129,12 +156,15 @@ jobs:
           # ("<repo> <tag>" / "protoLabs · <repo>").
           title: ${{ steps.v.outputs.kind == 'archetype' && format('Archetype · {0} {1}', steps.v.outputs.repo_name, steps.v.outputs.tag) || '' }}
           footer: ${{ steps.v.outputs.kind == 'archetype' && format('protoLabs · archetype · {0}', steps.v.outputs.repo_name) || '' }}
+          # Archetypes: the member-pin diff between the tags feeds the notes and is
+          # appended as a "Member pins" section (pin bumps ARE an archetype's changes).
+          bundle-manifest: ${{ steps.v.outputs.kind == 'archetype' && steps.v.outputs.manifest || '' }}
         env:
           GATEWAY_API_KEY: ${{ secrets.GATEWAY_API_KEY }}
           DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
 
       - name: Set the GitHub release body to the generated notes
-        if: steps.v.outputs.exists == 'false' && steps.notes.outputs.notes != ''
+        if: steps.v.outputs.release_exists == 'false' && steps.notes.outputs.notes != ''
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           NOTES: ${{ steps.notes.outputs.notes }}

@@ -396,3 +396,55 @@ test('docs-only (ADR/guide) commits are excluded from the user prompt; real feat
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── Archetype (bundle) releases: pin bumps ARE the changes ─────────────────────
+// The first archetype runs through plugin-release.yml dropped every `chore: bump…` /
+// `chore: release…` commit before the model saw them, so PM v0.7.0's notes named an
+// intermediate projectBoard pin (v0.47.0, it ships v0.65.0) and omitted github v0.9.1.
+// With --bundle-manifest those commits are kept and the manifest's pin diff between the
+// two tags is the authority, appended verbatim.
+test('--bundle-manifest keeps bump/release commits and puts the final pin diff in the prompt', () => {
+  const dir = makeRepo(1, []);
+  const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+  const manifest = (board, extra = '') =>
+    `id: x-archetype\nversion: 0.1.0\nverified_against: 0.100.0\nplugins:\n  - { id: project_board, url: https://github.com/protoLabsAI/projectBoard-plugin, ref: ${board} }\n${extra}`;
+  writeFileSync(join(dir, 'protoagent.bundle.yaml'), manifest('v0.42.0'));
+  git('add', '.');
+  git('commit', '-q', '-m', 'feat: first bundle');
+  git('tag', 'v0.1.0');
+  writeFileSync(join(dir, 'protoagent.bundle.yaml'), manifest('v0.47.0'));
+  git('commit', '-q', '-am', 'chore: bump project_board v0.42.0 -> v0.47.0');
+  writeFileSync(
+    join(dir, 'protoagent.bundle.yaml'),
+    manifest('v0.65.0', '  - { id: github, url: https://github.com/protoLabsAI/github-plugin, ref: v0.9.1 }\n'),
+  );
+  git('commit', '-q', '-am', 'chore: release v0.2.0 — board to v0.65.0, add github');
+  git('tag', 'v0.2.0');
+  try {
+    const plain = runDryRun(dir);
+    assert.equal(plain.status, 0, plain.stderr);
+    // Without the flag a bundle range is all "chores" — the old, lossy behaviour.
+    assert.doesNotMatch(plain.stdout.split('── User Prompt ──')[1] ?? '', /chore: bump/);
+
+    const r = runDryRun(dir, ['--bundle-manifest', 'protoagent.bundle.yaml']);
+    assert.equal(r.status, 0, r.stderr);
+    const userPrompt = r.stdout.split('── User Prompt ──')[1] ?? '';
+    assert.match(userPrompt, /chore: bump project_board v0\.42\.0 -> v0\.47\.0/);
+    assert.match(userPrompt, /chore: release v0\.2\.0/);
+    assert.match(userPrompt, /Member pin changes/);
+    // The FINAL pin, not the intermediate v0.47.0.
+    assert.match(userPrompt, /`project_board` v0\.42\.0 → v0\.65\.0/);
+    assert.match(userPrompt, /`github` added \(v0\.9\.1\)/);
+    assert.match(r.stdout, /ARCHETYPE \(plugin bundle\) release/);
+
+    // Same thing via the env var the composite action sets.
+    const e = spawnSync('node', [CLI, '--dry-run'], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: { ...process.env, RELEASE_NOTES_BUNDLE_MANIFEST: 'protoagent.bundle.yaml' },
+    });
+    assert.match(e.stdout, /`project_board` v0\.42\.0 → v0\.65\.0/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -82,6 +82,11 @@ RELEASE_NOTES_FOOTER      Override the Discord embed footer.
 
 1. Lists commits in the range `<previous-version>..<version>`.
 2. Filters out merge / `chore: release` / `chore: bump` / `promote` commits.
+   With `--bundle-manifest <file>` (an archetype release) the release and bump
+   commits are kept, since in a bundle they are the changes. The member-pin diff
+   of that manifest between the two tags is computed, given to the model as the
+   only authority on member versions, and appended to the notes verbatim as a
+   **Member pins** section.
 3. **Squash-merge fallback:** if the tag-to-tag range yields nothing
    user-facing (because dev → main was squash-merged), falls back to
    `<previous-version>..origin/dev` which preserves the individual commits.
@@ -202,7 +207,9 @@ loader ignores the key; it exists for the release tag. An archetype release is
 labelled as one: the Discord embed reads `Archetype · <repo> vX.Y.Z` with an
 `archetype` footer, and the GitHub release body opens with an archetype line.
 Plugin releases are unchanged. A missing or non-semver `version:` fails the
-run instead of tagging `v`.
+run instead of tagging `v`. Archetype notes are built from the bundle's
+member-pin diff between the two tags (`--bundle-manifest`), and pin-bump commits
+are not filtered out, so the notes name each member's actual final pin.
 
 ### Use it
 
@@ -229,8 +236,10 @@ jobs:
 ```
 
 Fire it with a `chore: release vX.Y.Z` squash subject on main, or
-`gh workflow run Release` once the version bump has merged. Re-runs on an
-existing tag are no-ops.
+`gh workflow run Release` once the version bump has merged. Re-runs are
+idempotent per artifact. A tag that already has a GitHub release is a no-op. A
+tag WITHOUT a release (an orphan left by a run that died after pushing the tag)
+gets its release, notes and Discord post on the re-run.
 
 ### Inputs
 

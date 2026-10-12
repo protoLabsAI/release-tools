@@ -23,6 +23,12 @@
  *   --notes-file <file>       Use notes from <file> instead of calling the LLM
  *                             (reuse a prior job's notes; also makes the file
  *                             outputs runnable without a gateway key).
+ *   --bundle-manifest <file>  Archetype (bundle) release: diff this manifest's member
+ *                             pins between the two tags (e.g. protoagent.bundle.yaml).
+ *                             Pin-bump and release commits are kept (they ARE the
+ *                             changes), the pin diff is given to the model as the
+ *                             source of truth, and a "Member pins" section is appended
+ *                             to the notes verbatim.
  *   --dry-run                 Print the prompt that would be sent and exit.
  *   --help                    Show this help and exit.
  *
@@ -43,12 +49,13 @@
  *                             Default: "protoLabs · <repo-name>"
  *   RELEASE_NOTES_TITLE       Override the Discord embed title text.
  *                             Default: "<repo-name> <version>"
+ *   RELEASE_NOTES_BUNDLE_MANIFEST  Same as --bundle-manifest (the flag wins).
  *
  * When called with no positional args, auto-detects the two most recent
  * semver-sorted tags (latest as `version`, previous as `prev-version`).
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import {
   appendFileSync,
   existsSync,
@@ -56,6 +63,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 
+import { diffBundlePins, formatPinChanges, hasPinChanges } from '../lib/bundle-pins.mjs';
 import {
   buildFallbackNotes,
   extractHighlights,
@@ -138,6 +146,22 @@ function getCommitsFromDev(fromTag) {
 }
 
 /**
+ * A file's contents at a ref, or '' when the ref or the file doesn't exist there
+ * (a manifest added in this release has no previous version — every member is new).
+ * execFileSync, not a shell string: the ref and path come from CLI args.
+ */
+function showFileAt(ref, path) {
+  try {
+    return execFileSync('git', ['show', `${ref}:${path}`], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Derive owner/name from `git remote get-url origin` so callers don't have to
  * pass it explicitly. Supports both ssh (`git@github.com:o/r.git`) and https
  * (`https://github.com/o/r.git` or `.../o/r`) forms.
@@ -199,14 +223,30 @@ Rules:
 - Fewer sections is fine. The 2-4 range is a ceiling, not a quota: a small release gets one
   section and three bullets. Never pad to fill a shape.`;
 
-function buildUserPrompt(version, previousVersion, commits) {
+// Appended for archetype (bundle) releases. In a bundle repo a pin bump IS the release,
+// and subjects can name an intermediate pin (several bumps of one member in a range),
+// so the manifest diff is handed over as the only valid source of member versions.
+const BUNDLE_PROMPT = `
+
+This is an ARCHETYPE (plugin bundle) release. The repo ships no code of its own: its member
+plugins are pinned to release tags in protoagent.bundle.yaml, so pin bumps ARE the changes —
+do not skip them as "version bumps".
+- The "Member pin changes" list below is computed from the manifest diff between the two tags
+  and is the ONLY authority on member versions. Commit subjects may name an intermediate pin;
+  never cite a version that is not in that list.
+- That list is appended to your notes verbatim, so do NOT restate it as a list of version
+  numbers. Describe what the moves bring the archetype's user, using the commits for context,
+  and name members by id.`;
+
+function buildUserPrompt(version, previousVersion, commits, { bundle = false, pinSection = '' } = {}) {
   const filtered = commits.filter((c) => {
     const subject = c.split('\n')[0].toLowerCase();
     return (
       !subject.startsWith('merge ') &&
-      !subject.startsWith('chore: release') &&
+      // In a bundle repo the release and bump commits carry the pin moves — keep them.
+      (bundle || !subject.startsWith('chore: release')) &&
       !subject.startsWith('promote') &&
-      !subject.startsWith('chore: bump') &&
+      (bundle || !subject.startsWith('chore: bump')) &&
       // Docs-only commits (conventional `docs:`/`doc:` prefixes, scoped or not)
       // are ADRs, guides, or READMEs — a PLAN or explanation, not shipped
       // behaviour. An ADR read as a feature gets described as delivered work
@@ -220,9 +260,12 @@ function buildUserPrompt(version, previousVersion, commits) {
   });
 
   const commitBlocks = filtered.join('\n---\n');
+  const pins = pinSection
+    ? `\n\nMember pin changes (from protoagent.bundle.yaml, ${previousVersion} → ${version}):\n\n${pinSection}`
+    : '';
 
   return {
-    prompt: `Write release notes for ${version} (previous: ${previousVersion}).
+    prompt: `Write release notes for ${version} (previous: ${previousVersion}).${pins}
 
 Each commit below includes the subject line and, where available, the commit body:
 
@@ -246,7 +289,7 @@ const LLM_BASE_URL =
 // leaks unfinished thinking into `content`.
 const LLM_MODEL = process.env.RELEASE_NOTES_MODEL || 'protolabs/fast';
 
-async function callLLM(userPrompt) {
+async function callLLM(userPrompt, systemPrompt = SYSTEM_PROMPT) {
   const apiKey = process.env.GATEWAY_API_KEY;
   if (!apiKey) throw new Error('GATEWAY_API_KEY is not set');
 
@@ -276,7 +319,7 @@ async function callLLM(userPrompt) {
           // into `content` (see comment on LLM_MODEL above).
           max_tokens: 8192,
           messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
         }),
@@ -426,6 +469,7 @@ const VALUE_FLAGS = new Set([
   '--changelog-format',
   '--notes-file',
   '--date',
+  '--bundle-manifest',
 ]);
 const opts = {};
 const positional = [];
@@ -442,6 +486,8 @@ const changelogFile = opts['--changelog'];
 const changelogFormat = opts['--changelog-format'] || 'md';
 const notesFile = opts['--notes-file'];
 const entryDate = opts['--date'] || today();
+const bundleManifest =
+  opts['--bundle-manifest'] || process.env.RELEASE_NOTES_BUNDLE_MANIFEST || '';
 
 let version = positional[0];
 let previousVersion = positional[1];
@@ -553,22 +599,44 @@ console.log(`Generating release notes: ${previousVersion} → ${version}`);
 const commits = getCommitsBetween(previousVersion, version);
 console.log(`Found ${commits.length} commits`);
 
+// Archetype release: the member-pin diff between the two tags is the ground truth.
+const isBundle = Boolean(bundleManifest);
+let pinSection = '';
+if (isBundle) {
+  const before = showFileAt(previousVersion, bundleManifest);
+  const after = showFileAt(version, bundleManifest);
+  if (!after) {
+    console.warn(
+      `WARNING: ${bundleManifest} not found at ${version} — no member-pin diff for these notes.`,
+    );
+  }
+  const diff = diffBundlePins(before, after);
+  pinSection = formatPinChanges(diff);
+  console.log(
+    hasPinChanges(diff)
+      ? `Member pin changes ${previousVersion} → ${version}:\n${pinSection}`
+      : `No member pin changes in ${bundleManifest} ${previousVersion} → ${version}.`,
+  );
+}
+const promptOpts = { bundle: isBundle, pinSection };
+const systemPrompt = isBundle ? SYSTEM_PROMPT + BUNDLE_PROMPT : SYSTEM_PROMPT;
+
 let {
   prompt: userPrompt,
   filteredCount,
   commits: filteredCommits,
-} = buildUserPrompt(version, previousVersion, commits);
+} = buildUserPrompt(version, previousVersion, commits, promptOpts);
 
 // Fallback: when dev→main is squash-merged, the tag-to-tag range only contains
 // "chore: release" commits. Try origin/dev which preserves the individual
 // commits.
-if (filteredCount === 0) {
+if (filteredCount === 0 && !pinSection) {
   console.log(
     'No user-facing commits in tag range — checking origin/dev for squash-merged commits...',
   );
   const devCommits = getCommitsFromDev(previousVersion);
   if (devCommits.length > 0) {
-    const devResult = buildUserPrompt(version, previousVersion, devCommits);
+    const devResult = buildUserPrompt(version, previousVersion, devCommits, promptOpts);
     if (devResult.filteredCount > 0) {
       console.log(
         `Found ${devResult.filteredCount} user-facing commits on origin/dev.`,
@@ -581,20 +649,21 @@ if (filteredCount === 0) {
 }
 
 if (dryRun) {
-  console.log('\n── System Prompt ──\n', SYSTEM_PROMPT);
+  console.log('\n── System Prompt ──\n', systemPrompt);
   console.log('\n── User Prompt ──\n', userPrompt);
   process.exit(0);
 }
 
-// Skip when every commit was filtered out (maintenance / CI-only releases).
-if (filteredCount === 0) {
+// Skip when every commit was filtered out (maintenance / CI-only releases) — unless
+// member pins moved, which in an archetype is the whole release.
+if (filteredCount === 0 && !pinSection) {
   console.log('No user-facing commits — nothing to generate.');
   process.exit(0);
 }
 
 let notes;
 try {
-  notes = await callLLM(userPrompt);
+  notes = await callLLM(userPrompt, systemPrompt);
 } catch (err) {
   console.warn(`LLM rewrite failed after retries (${err.message}).`);
 }
@@ -603,5 +672,10 @@ try {
 if (!notes?.trim()) {
   console.warn('Falling back to raw commit notes.');
   notes = buildFallbackNotes(version, filteredCommits);
+}
+// The pin list is appended verbatim, never paraphrased: it is the part of an archetype's
+// notes a reader acts on, and the part a model has been seen to get wrong.
+if (pinSection) {
+  notes = `${notes.trim()}\n\n${pinSection}`;
 }
 await emitNotes(notes);
