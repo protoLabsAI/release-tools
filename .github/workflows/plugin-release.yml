@@ -64,6 +64,7 @@ jobs:
           MANIFEST_INPUT: ${{ inputs.manifest }}
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          PLACEHOLDER: "Generating release notes…"
         run: |
           MANIFEST="$MANIFEST_INPUT"
           if [ -z "$MANIFEST" ]; then
@@ -115,11 +116,21 @@ jobs:
           else
             echo "tag_exists=false" >> "$GITHUB_OUTPUT"
           fi
-          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+          # A release whose body is still the placeholder (a run that died between
+          # `gh release create` and writing the notes) is not finished either: re-runs
+          # regenerate its notes instead of leaving the placeholder forever.
+          if BODY=$(gh release view "$TAG" --repo "$REPO" --json body -q .body 2>/dev/null); then
             echo "release_exists=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::$TAG is already tagged and released — skipping (idempotent re-run)."
+            if [ "$BODY" = "$PLACEHOLDER" ]; then
+              echo "needs_notes=true" >> "$GITHUB_OUTPUT"
+              echo "::notice::$TAG is released but its notes were never written — regenerating them."
+            else
+              echo "needs_notes=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::$TAG is already tagged and released — skipping (idempotent re-run)."
+            fi
           else
             echo "release_exists=false" >> "$GITHUB_OUTPUT"
+            echo "needs_notes=true" >> "$GITHUB_OUTPUT"
             if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
               echo "::notice::$TAG is tagged but has no GitHub release (orphan tag) — creating the release."
             fi
@@ -139,15 +150,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.v.outputs.tag }}
+          PLACEHOLDER: "Generating release notes…"
         run: |
           # --verify-tag: release the tag that exists (new or orphan), never let gh
           # create a fresh one at the default branch's HEAD.
-          gh release create "$TAG" --verify-tag --title "$TAG" \
-            --notes "Generating release notes…"
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes "$PLACEHOLDER"
 
       - name: Generate notes + post to Discord
         id: notes
-        if: steps.v.outputs.release_exists == 'false'
+        if: steps.v.outputs.needs_notes == 'true'
         uses: protoLabsAI/release-tools@v2
         with:
           version: ${{ steps.v.outputs.tag }}
@@ -164,7 +175,7 @@ jobs:
           DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
 
       - name: Set the GitHub release body to the generated notes
-        if: steps.v.outputs.release_exists == 'false' && steps.notes.outputs.notes != ''
+        if: steps.v.outputs.needs_notes == 'true' && steps.notes.outputs.notes != ''
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           NOTES: ${{ steps.notes.outputs.notes }}

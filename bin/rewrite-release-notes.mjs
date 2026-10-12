@@ -114,11 +114,21 @@ function getRootCommit() {
   }
 }
 
+/**
+ * `git <args>` without a shell. Refs come from CLI args / workflow inputs, and a
+ * git ref name may legally contain shell metacharacters, so they must never be
+ * interpolated into a shell command string.
+ */
+function git(...args) {
+  return execFileSync('git', args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+}
+
 function getCommitsBetween(fromTag, toTag) {
   const SEPARATOR = '<<<COMMIT>>>';
-  const log = run(
-    `git log ${fromTag}..${toTag} --pretty=format:"${SEPARATOR}%s%n%b"`,
-  );
+  const log = git('log', `${fromTag}..${toTag}`, `--pretty=format:${SEPARATOR}%s%n%b`);
   return log
     .split(SEPARATOR)
     .map((block) => block.trim())
@@ -133,9 +143,7 @@ function getCommitsBetween(fromTag, toTag) {
 function getCommitsFromDev(fromTag) {
   const SEPARATOR = '<<<COMMIT>>>';
   try {
-    const log = run(
-      `git log ${fromTag}..origin/dev --pretty=format:"${SEPARATOR}%s%n%b"`,
-    );
+    const log = git('log', `${fromTag}..origin/dev`, `--pretty=format:${SEPARATOR}%s%n%b`);
     return log
       .split(SEPARATOR)
       .map((block) => block.trim())
@@ -380,11 +388,22 @@ async function postToDiscord(repoSlug, version, notes) {
       await new Promise((r) => setTimeout(r, delays[attempt]));
       console.log(`Retrying Discord post (attempt ${attempt + 1})...`);
     }
-    const res = await fetch(webhook, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    let res;
+    try {
+      res = await fetch(webhook, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      // fetch() itself threw (DNS / connection reset / timeout) — transient,
+      // retried like callLLM's network errors.
+      if (attempt === delays.length - 1) {
+        throw new Error(`Discord webhook unreachable: ${e.message}`);
+      }
+      console.warn(`Discord post failed (${e.message}), retrying...`);
+      continue;
+    }
     if (res.ok) {
       console.log(`Posted to Discord: ${version}`);
       return;
