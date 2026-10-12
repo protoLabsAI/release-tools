@@ -8,6 +8,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: >-
+          Existing release tag to (re)publish, e.g. v2.6.0 — checks the tag out so the npm
+          tarball and the GitHub release match it exactly, even though this workflow file
+          comes from main. Leave empty to release the dispatched branch's HEAD.
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -30,6 +39,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          ref: ${{ inputs.ref }}
 
       # NO `registry-url:` — deliberately. It makes setup-node write an .npmrc containing
       # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` AND export NODE_AUTH_TOKEN as
@@ -120,6 +130,11 @@ jobs:
         run: |
           TAG="${{ steps.version.outputs.tag }}"
           MAJOR="v$(printf '%s' "${TAG#v}" | cut -d. -f1)"
+          NEWEST=$(git tag --list "$MAJOR.*" --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          if [ "$NEWEST" != "$TAG" ]; then
+            echo "::notice::$TAG is not the newest $MAJOR release ($NEWEST) — leaving $MAJOR where it is."
+            exit 0
+          fi
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name  "github-actions[bot]"
           # Point at the release COMMIT (peeled), never at another tag object.
@@ -127,29 +142,14 @@ jobs:
           git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$MAJOR"
           echo "major alias $MAJOR now points at $TAG"
 
-      - name: Publish to npm
-        # TOKENLESS — OIDC Trusted Publishing. The grant is configured on the package
-        # (GitHub Actions / protolabsai / release-tools / release.yml, no environment),
-        # which is what the previous comment here was waiting on.
-        #
-        # NODE_AUTH_TOKEN is deliberately NOT set. A token takes PRECEDENCE over OIDC, so
-        # setting one means npm never attempts the trusted-publisher exchange at all — the
-        # fallback added while the grant was unconfirmed was itself bypassing the grant once
-        # it existed. That is what failed the v2.5.0 cut: `E404` on PUT, which is npm's
-        # auth-failure shape, as the automation token stopped being accepted for direct
-        # publishing (npm is restricting tokens that bypass 2FA).
-        #
-        # Requirements, all satisfied above: npm >= 11.5.1 (the `npm install -g npm@11` step),
-        # `id-token: write` on the job, and the workflow FILENAME matching the grant exactly.
-        # Renaming this file breaks publishing until the grant is updated to match.
-        if: steps.version.outputs.npm_published != 'true'
-        run: npm publish --access public --provenance
-
       - name: Create GitHub release
         # Idempotent on the release's own existence, NOT on tag_exists: a prior
-        # run that tagged but failed at publish leaves the tag behind, and
-        # gating on tag_exists would then skip the release forever. Create only
-        # if it's missing.
+        # run that tagged but failed later leaves the tag behind, and gating on
+        # tag_exists would then skip the release forever. Create only if it's missing.
+        #
+        # Runs BEFORE npm: consumers resolve `plugin-release.yml@v2` from git, so the
+        # tag + release page are the real release. An npm failure (v2.6.0: ENEEDAUTH)
+        # must not leave a tagged version with no release page.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -159,6 +159,34 @@ jobs:
           else
             gh release create "$TAG" --title "$TAG" --generate-notes
           fi
+
+      - name: Publish to npm
+        # TOKENLESS — OIDC Trusted Publishing. NODE_AUTH_TOKEN is deliberately NOT set and
+        # setup-node has no `registry-url` (see above): ANY token, including setup-node's
+        # placeholder, pre-empts the OIDC exchange.
+        #
+        # The grant on npmjs.com (package → Settings → Trusted publishing) must read EXACTLY:
+        #   Publisher: GitHub Actions · Organization: protoLabsAI · Repository: release-tools
+        #   Workflow filename: release.yml · Environment: (blank) · "allow publishing directly"
+        # The fields are CASE-SENSITIVE and GitHub's OIDC claim carries the canonical
+        # `protoLabsAI`. A grant typed as `protolabsai` never matches; npm masks that as
+        # "package not found" on the exchange and the publish dies as ENEEDAUTH, because a
+        # failed exchange is only logged at verbose level. (Same root cause as protoPatch's
+        # 2026-09 publish outage.) The fields are immutable in the npm UI — delete and
+        # re-create the grant. Renaming this file also breaks the match.
+        #
+        # On failure, surface the OIDC lines from npm's debug log so the real cause is in
+        # the run log instead of the generic ENEEDAUTH.
+        if: steps.version.outputs.npm_published != 'true'
+        run: |
+          if npm publish --access public --provenance; then
+            exit 0
+          fi
+          echo "::group::npm OIDC diagnostics (from the debug log)"
+          grep -hiE 'oidc|trust|exchange|npm-notice' "$HOME"/.npm/_logs/*-debug-0.log || echo "no OIDC lines logged — the exchange was never attempted"
+          echo "::endgroup::"
+          echo "::error::npm publish failed. If the OIDC lines show the token exchange failing (404 / package not found), the trusted-publisher grant does not match this workflow — check its casing (protoLabsAI / release-tools / release.yml, no environment) on npmjs.com."
+          exit 1
 
       - name: Announce on Discord
         # Generate AI release notes from the commit range and post the embed.
