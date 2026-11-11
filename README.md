@@ -245,7 +245,7 @@ gets its release, notes and Discord post on the re-run.
 
 | Input    | Required | Default                                   | Description          |
 | -------- | -------- | ----------------------------------------- | -------------------- |
-| `runner` | no       | `namespace-profile-protolabs-linux` (via `NSC_RUNNER`) | Runner label for the release job. |
+| `runner` | no       | `ubuntu-latest`                           | Runner label for the release job (a GitHub-hosted label). |
 | `manifest` | no     | auto-detect (`protoagent.plugin.yaml`, else `protoagent.bundle.yaml`) | Manifest to read `version:` from. A `*bundle.yaml` manifest marks the release as an archetype. |
 
 ### Required secrets (pass via `secrets: inherit`)
@@ -289,8 +289,9 @@ reference.
 
 `verify-workspace-config` checks a repo against the protoLabs baseline for
 `.beads/` (issue tracker) and `.automaker/` (board) config that every
-fleet-watched repo should carry — plus a self-hosted-runner check so no repo
-silently burns GitHub-hosted minutes.
+fleet-watched repo should carry — plus a runner check that flags any workflow
+still pointed at a Namespace runner (every workflow runs on GitHub-hosted
+runners).
 
 ```bash
 # Local — in a repo's CI on PR (exits non-zero on error-severity drift)

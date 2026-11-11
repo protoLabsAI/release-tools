@@ -65,9 +65,9 @@ project into the routing index — both idempotent.
 npx -y @protolabsai/release-tools verify-workspace-config --repo protoLabsAI/example-repo
 ```
 
-Expect `✅ conformant`. If you see a `workflows-use-owned-runners` error, one of
-the repo's workflows uses a GitHub-hosted runner — change its `runs-on:` to
-`namespace-profile-protolabs-linux` and push.
+Expect `✅ conformant`. If you see a `workflows-use-github-hosted-runners` error,
+one of the repo's workflows still uses a Namespace runner. Change its `runs-on:`
+to `ubuntu-latest` and push.
 
 ## What you built
 

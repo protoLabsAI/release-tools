@@ -25,7 +25,6 @@ permissions:
 jobs:
   release:
     name: Tag + publish
-    # workspace-config: allow-hosted-runner npm publish --provenance requires hosted OIDC
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: >-

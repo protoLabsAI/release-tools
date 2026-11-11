@@ -31,7 +31,7 @@ Complete, terse, accurate.
 
 The reasoning behind the conventions.
 
-- [Proto release conventions](./explanation/proto-release-conventions.md) — why owned runners, why bots aren't required checks, why settings are committed, why beads.db is gitignored.
+- [Proto release conventions](./explanation/proto-release-conventions.md) — why GitHub-hosted runners, why bots aren't required checks, why settings are committed, why beads.db is gitignored.
 
 ## The pieces at a glance
 

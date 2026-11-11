@@ -99,7 +99,7 @@ Defaults + rationale: [branch-protection-defaults](./branch-protection-defaults.
 
 Exit codes: `0` conformant (or `--warn-only`), `1` error-severity drift, `2`
 usage/IO error. Local mode checks **git-tracked** files (committed), not
-filesystem presence. Rule table: [workspace-config-standard](./workspace-config-standard.md). Annotate a legit hosted runner with `# workspace-config: allow-hosted-runner <reason>` to except it; exceptions surface in `--json` as `runnerExceptions`.
+filesystem presence. Rule table: [workspace-config-standard](./workspace-config-standard.md). Workflows must run on GitHub-hosted runners; a Namespace `runs-on:` is an error. The `--json` report's `runnerExceptions` key is kept for compatibility and is always empty.
 
 ---
 
