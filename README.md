@@ -289,8 +289,9 @@ reference.
 
 `verify-workspace-config` checks a repo against the protoLabs baseline for
 `.beads/` (issue tracker) and `.automaker/` (board) config that every
-fleet-watched repo should carry — plus a self-hosted-runner check so no repo
-silently burns GitHub-hosted minutes.
+fleet-watched repo should carry — plus a runner check that flags any workflow
+still pointed at a Namespace runner (every workflow runs on GitHub-hosted
+runners).
 
 ```bash
 # Local — in a repo's CI on PR (exits non-zero on error-severity drift)
