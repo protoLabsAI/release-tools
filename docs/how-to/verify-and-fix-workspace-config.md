@@ -1,6 +1,6 @@
 # Verify & fix workspace config
 
-Check a repo against the `.beads/` + `.automaker/` + owned-runner standard, and
+Check a repo against the `.beads/` + `.automaker/` + GitHub-hosted-runner standard, and
 bring it into conformance.
 
 ## Verify
@@ -26,8 +26,8 @@ git commit -m "chore: conform to workspace-config standard"
 
 ## The one thing the scaffolder can't fix
 
-`workflows-use-owned-runners` errors are per-workflow code edits: change
-`runs-on: ubuntu-latest` (etc.) to `runs-on: namespace-profile-protolabs-linux`
-in the listed workflow files and open a PR. Cross-platform builds that
-legitimately need hosted runners are a known exception (see
-release-tools#17). Full rule table: [workspace-config-standard](../reference/workspace-config-standard.md).
+`workflows-use-github-hosted-runners` errors are per-workflow code edits. In
+each listed workflow file, change a Namespace runner such as
+`runs-on: ${{ vars.NSC_RUNNER || 'namespace-profile-protolabs-linux' }}` to
+`runs-on: ubuntu-latest` (or `macos-latest` / `windows-latest` if the job needs
+that OS), then open a PR. Full rule table: [workspace-config-standard](../reference/workspace-config-standard.md).

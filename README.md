@@ -245,7 +245,7 @@ gets its release, notes and Discord post on the re-run.
 
 | Input    | Required | Default                                   | Description          |
 | -------- | -------- | ----------------------------------------- | -------------------- |
-| `runner` | no       | `namespace-profile-protolabs-linux` (via `NSC_RUNNER`) | Runner label for the release job. |
+| `runner` | no       | `ubuntu-latest`                           | Runner label for the release job (a GitHub-hosted label). |
 | `manifest` | no     | auto-detect (`protoagent.plugin.yaml`, else `protoagent.bundle.yaml`) | Manifest to read `version:` from. A `*bundle.yaml` manifest marks the release as an archetype. |
 
 ### Required secrets (pass via `secrets: inherit`)

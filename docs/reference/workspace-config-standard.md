@@ -20,39 +20,33 @@ Enforced by `verify-workspace-config` (this package).
 | `automaker-settings-committed`   | error    | `.automaker/settings.json` is **committed** (versioned per-repo agent baseline)                                                                         |
 | `worktrees-gitignored`           | error    | `.worktrees/` is **gitignored** (agent worktrees never committed)                                                                                       |
 | `automaker-transient-gitignored` | warn     | `.automaker/features/`, `checkpoints/`, `trajectory/` gitignored; `settings.json` + `context/` stay committed                                           |
-| `workflows-use-owned-runners`    | error    | every `runs-on:` is an org-owned runner (`namespace-profile-protolabs-linux`), never GitHub-hosted (`ubuntu-*`, `windows-*`, `macos-*`)                 |
+| `workflows-use-github-hosted-runners` | error | every `runs-on:` is a GitHub-hosted runner (`ubuntu-*`, `windows-*`, `macos-*`), never a Namespace runner (`namespace-profile-*`, `vars.NSC_RUNNER`) |
 | `workflow-security-lint`         | warn     | `.github/workflows/workflow-security-lint.yml` exists — zizmor + actionlint run in CI (CWE-94 script-injection, unpinned actions, token over-privilege) |
 | `biome-linter`                   | warn     | JS/TS repos (those with a `package.json`) lint with **biome** at the fleet-pinned version (`FLEET_BIOME_VERSION`); non-node repos are N/A                |
 
 **Errors gate CI. Warnings are advisory.**
 
-### Why workflows must use org-owned runners
+### Why workflows run on GitHub-hosted runners
 
-GitHub-hosted runners burn metered Actions minutes. Every protoLabs repo
-should run CI on the self-hosted `namespace-profile-protolabs-linux` profile.
-The check scans `.github/workflows/*.yml` `runs-on:` values and flags any
-hosted label (`ubuntu-*`, `windows-*`, `macos-*`), listing the offending
-workflow files. Expression-based `runs-on` (`${{ matrix.os }}`) is not
-statically flagged — matrix-hosted runners need a manual look.
+protoLabs no longer uses Namespace runners. Every workflow runs on a
+GitHub-hosted runner: `ubuntu-latest` for Linux jobs, `macos-*` or `windows-*`
+when a job needs that OS.
 
-#### Sanctioned hosted-runner exceptions
+The check scans the `runs-on:` values in `.github/workflows/*.yml` and flags any
+that still point at Namespace: a `namespace-profile-*` (or `nscloud-*`) label,
+or an expression that reads `vars.NSC_RUNNER`, such as
+`${{ vars.NSC_RUNNER || 'namespace-profile-protolabs-linux' }}`. It lists each
+offending file. The fix is to set `runs-on: ubuntu-latest` (or the matching
+GitHub-hosted label).
 
-Some hosted-runner uses are legitimate and can't move to the namespace profile
-— cross-platform binary builds (macOS/Windows Tauri targets), npm publish with
-provenance. Annotate them so they pass without disabling the rule repo-wide:
+An expression with no Namespace reference in it, like `${{ matrix.os }}`, can't
+be resolved statically and is not flagged.
 
-```yaml
-jobs:
-  bundle:
-    # workspace-config: allow-hosted-runner cross-platform binary build
-    runs-on: macos-14
-  notes:
-    runs-on: ubuntu-latest # workspace-config: allow-hosted-runner npm provenance
-```
-
-The annotation is honored on the `runs-on:` line (trailing comment) or the line
-directly above it. Exceptions still appear in the audit output (and `--json`
-`runnerExceptions`) — a sanctioned exception is visible, not silent.
+This rule used to be `workflows-use-owned-runners`, which did the opposite: it
+flagged hosted runners and let you excuse one with a
+`# workspace-config: allow-hosted-runner <reason>` comment. That comment now
+does nothing, because hosted runners need no excuse. Leaving it in is harmless.
+The `--json` report still has a `runnerExceptions` key, but it is always empty.
 
 ### Why a workflow security lint is a fleet standard
 

@@ -7,6 +7,7 @@ import {
   gitignoreMatches,
   resolveIgnored,
   isGitHubHostedRunner,
+  isNamespaceRunner,
   listRunnerExceptions,
   planScaffold,
   SCAFFOLD_FILES,
@@ -170,53 +171,74 @@ test('each rule carries a fix hint', () => {
   }
 });
 
-// ── self-hosted runner rule ──────────────────────────────────────────────
+// ── runner rule: GitHub-hosted is the standard, Namespace is retired ────
 
-test('isGitHubHostedRunner flags hosted labels, allows owned/self-hosted', () => {
+test('isGitHubHostedRunner recognises hosted labels', () => {
   for (const hosted of ['ubuntu-latest', 'ubuntu-24.04', 'windows-latest', 'macos-14', 'macOS-latest']) {
     assert.equal(isGitHubHostedRunner(hosted), true, `${hosted} should be hosted`);
   }
-  for (const owned of ['namespace-profile-protolabs-linux', 'self-hosted', 'protolabs-arm']) {
-    assert.equal(isGitHubHostedRunner(owned), false, `${owned} should NOT be hosted`);
+  for (const other of ['namespace-profile-protolabs-linux', 'self-hosted', '${{ matrix.os }}']) {
+    assert.equal(isGitHubHostedRunner(other), false, `${other} should NOT be hosted`);
   }
 });
 
-test('isGitHubHostedRunner does not flag expression-based runs-on', () => {
-  assert.equal(isGitHubHostedRunner('${{ matrix.os }}'), false);
-  assert.equal(isGitHubHostedRunner('${{ vars.RUNNER }}'), false);
+test('isNamespaceRunner flags namespace labels and NSC_RUNNER expressions', () => {
+  for (const ns of [
+    'namespace-profile-protolabs-linux',
+    'nscloud-ubuntu-22.04-amd64-4x16',
+    "${{ vars.NSC_RUNNER || 'namespace-profile-protolabs-linux' }}",
+    "${{ inputs.runner || vars.NSC_RUNNER || 'ubuntu-latest' }}",
+    '${{ vars.NSC_RUNNER }}',
+  ]) {
+    assert.equal(isNamespaceRunner(ns), true, `${ns} should be Namespace`);
+  }
+  for (const ok of ['ubuntu-latest', 'macos-14', 'windows-latest', '${{ matrix.os }}', "${{ inputs.runner || 'ubuntu-latest' }}"]) {
+    assert.equal(isNamespaceRunner(ok), false, `${ok} should NOT be Namespace`);
+  }
 });
 
-test('a workflow on a GitHub-hosted runner is an error, with offending files in detail', () => {
+test('a workflow on a Namespace runner is an error, with offending files in detail', () => {
   const m = {
     ...goodManifest(),
     workflowRunners: [
       { file: 'ci.yml', runsOn: 'ubuntu-latest' },
       { file: 'release.yml', runsOn: 'namespace-profile-protolabs-linux' },
+      { file: 'lint.yml', runsOn: "${{ vars.NSC_RUNNER || 'namespace-profile-protolabs-linux' }}" },
     ],
   };
   const r = evaluateStandard(m);
-  const v = r.violations.find((x) => x.id === 'workflows-use-owned-runners');
+  const v = r.violations.find((x) => x.id === 'workflows-use-github-hosted-runners');
   assert.ok(v, 'expected runner violation');
   assert.equal(v.severity, 'error');
-  assert.deepEqual(v.detail, ['ci.yml: runs-on ubuntu-latest']);
+  assert.match(v.fix, /ubuntu-latest/);
+  assert.deepEqual(v.detail, [
+    'release.yml: runs-on namespace-profile-protolabs-linux',
+    "lint.yml: runs-on ${{ vars.NSC_RUNNER || 'namespace-profile-protolabs-linux' }}",
+  ]);
 });
 
-test('all workflows on owned runners → no runner violation', () => {
+test('all workflows on GitHub-hosted runners → no runner violation', () => {
   const m = {
     ...goodManifest(),
     workflowRunners: [
-      { file: 'ci.yml', runsOn: 'namespace-profile-protolabs-linux' },
-      { file: 'release.yml', runsOn: 'namespace-profile-protolabs-linux' },
+      { file: 'ci.yml', runsOn: 'ubuntu-latest' },
+      { file: 'tauri.yml', runsOn: '${{ matrix.os }}' },
+      { file: 'mac.yml', runsOn: 'macos-14' },
     ],
   };
   const r = evaluateStandard(m);
-  assert.equal(r.violations.some((x) => x.id === 'workflows-use-owned-runners'), false);
+  assert.equal(r.violations.some((x) => x.id === 'workflows-use-github-hosted-runners'), false);
   assert.equal(r.ok, true);
+});
+
+test('the old owned-runners rule is gone', () => {
+  assert.equal(WORKSPACE_STANDARD.some((x) => x.id === 'workflows-use-owned-runners'), false);
+  assert.ok(WORKSPACE_STANDARD.some((x) => x.id === 'workflows-use-github-hosted-runners'));
 });
 
 test('no workflows at all → runner rule passes (nothing to flag)', () => {
   const r = evaluateStandard(goodManifest()); // no workflowRunners field
-  assert.equal(r.violations.some((x) => x.id === 'workflows-use-owned-runners'), false);
+  assert.equal(r.violations.some((x) => x.id === 'workflows-use-github-hosted-runners'), false);
 });
 
 test('missing workflow-security-lint is a warn (not an error)', () => {
@@ -297,44 +319,14 @@ test('scaffold output makes a bare repo pass evaluateStandard (sans runner rule)
   assert.equal(r.errorCount, 0);
 });
 
-// ── runner exception annotation ──────────────────────────────────────────
+// ── retired hosted-runner annotation ─────────────────────────────────────
 
-test('annotated hosted runner is allowed (not a violation) and surfaced as exception', () => {
+test('listRunnerExceptions is deprecated and always empty', () => {
   const m = {
     ...goodManifest(),
-    workflowRunners: [
-      { file: 'ci.yml', runsOn: 'namespace-profile-protolabs-linux' },
-      {
-        file: 'tauri-release.yml',
-        runsOn: 'macos-14',
-        allowed: true,
-        reason: 'cross-platform build',
-      },
-    ],
+    workflowRunners: [{ file: 'tauri.yml', runsOn: 'macos-14' }],
   };
-  const r = evaluateStandard(m);
-  assert.equal(r.violations.some((x) => x.id === 'workflows-use-owned-runners'), false);
-  assert.equal(r.ok, true);
-  const exc = listRunnerExceptions(m);
-  assert.equal(exc.length, 1);
-  assert.deepEqual(exc[0], { file: 'tauri-release.yml', runsOn: 'macos-14', reason: 'cross-platform build' });
-});
-
-test('unannotated hosted runner is still a violation even when another is annotated', () => {
-  const m = {
-    ...goodManifest(),
-    workflowRunners: [
-      { file: 'ci.yml', runsOn: 'ubuntu-latest' }, // not annotated → error
-      { file: 'tauri.yml', runsOn: 'macos-14', allowed: true, reason: 'mac build' },
-    ],
-  };
-  const r = evaluateStandard(m);
-  const v = r.violations.find((x) => x.id === 'workflows-use-owned-runners');
-  assert.ok(v);
-  assert.deepEqual(v.detail, ['ci.yml: runs-on ubuntu-latest']); // only the unannotated one
-});
-
-test('listRunnerExceptions returns [] when no annotated hosted runners', () => {
+  assert.deepEqual(listRunnerExceptions(m), []);
   assert.deepEqual(listRunnerExceptions(goodManifest()), []);
 });
 

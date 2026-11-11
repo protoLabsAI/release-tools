@@ -43,16 +43,17 @@ the real safety net — a stale branch that would break main usually fails its
 own CI. We default loose, and keep strict only on repos with enough parallel
 contributors that semantic conflicts between stale branches are a genuine risk.
 
-## Owned runners, not GitHub-hosted
+## GitHub-hosted runners, not Namespace
 
-GitHub-hosted runners bill metered minutes. Routine CI should run on the
-self-hosted `namespace-profile-protolabs-linux` profile. The standard flags any
-`ubuntu/windows/macos-*` `runs-on:` so minutes don't leak silently. The
-exception is work that genuinely needs a hosted runner — cross-platform binary
-builds (Tauri's macOS/Windows targets can't build on a Linux runner), npm
-provenance — which is why the rule supports an inline
-`# workspace-config: allow-hosted-runner <reason>` exception rather than a
-blanket ban — sanctioned, visible, and per-workflow.
+Every protoLabs workflow runs on GitHub-hosted runners: `ubuntu-latest` for
+Linux jobs, `macos-*` / `windows-*` where a job needs that OS. We stopped using
+Namespace runners for anything.
+
+The standard flags any `runs-on:` that still names a `namespace-profile-*`
+label or reads `vars.NSC_RUNNER`. Hosted runners need no exception any more, so
+the old `# workspace-config: allow-hosted-runner <reason>` comment does nothing
+now. Leaving it in a workflow is harmless; delete it whenever you next touch
+the file.
 
 ## `.automaker/settings.json` is committed per repo
 

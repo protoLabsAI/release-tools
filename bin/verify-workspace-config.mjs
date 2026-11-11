@@ -36,19 +36,19 @@ import { promisify } from 'node:util';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { evaluateStandard, listRunnerExceptions } from '../lib/workspace-config.mjs';
+import { evaluateStandard } from '../lib/workspace-config.mjs';
 
 /**
  * Extract `runs-on:` values from a workflow YAML body. Deliberately a regex
  * scan, not a full YAML parse — runs-on can be a scalar, a list, or an
- * expression, and we only need the literal labels to flag hosted runners.
+ * expression, and we only need the labels to flag Namespace runners.
  * Returns one entry per runs-on occurrence.
  */
 function extractRunsOn(file, body) {
   const out = [];
-  // Sanctioned hosted-runner exception annotation. Honored on the runs-on line
-  // itself (trailing comment) or on the immediately-preceding line.
-  const ANNO = /#\s*workspace-config:\s*allow-hosted-runner\b\s*(.*)/i;
+  // The old `# workspace-config: allow-hosted-runner` annotation is no longer
+  // read: hosted runners are the standard now, so it has nothing to excuse.
+  // Repos that still carry it are fine — it's just a comment.
   const lines = body.split('\n');
 
   for (let i = 0; i < lines.length; i++) {
@@ -56,23 +56,10 @@ function extractRunsOn(file, body) {
     const m = /^\s*runs-on:\s*(.+?)\s*$/.exec(line);
     if (!m) continue;
 
-    // Detect the annotation: trailing on this line, or on the line above.
-    let allowed = false;
-    let reason = '';
-    const inline = ANNO.exec(line);
-    const prev = i > 0 ? ANNO.exec(lines[i - 1]) : null;
-    if (inline) {
-      allowed = true;
-      reason = inline[1].trim();
-    } else if (prev) {
-      allowed = true;
-      reason = prev[1].trim();
-    }
-
     // Strip a trailing comment from the value before parsing labels.
     const val = m[1].replace(/\s+#.*$/, '').trim();
 
-    const push = (label) => out.push({ file, runsOn: label, allowed, reason });
+    const push = (label) => out.push({ file, runsOn: label });
     if (val.startsWith('[')) {
       val
         .replace(/[[\]]/g, '')
@@ -102,13 +89,14 @@ try {
     : localManifest(args.root ?? process.cwd());
 
   const report = evaluateStandard(manifest);
-  const exceptions = listRunnerExceptions(manifest);
   const target = args.repo ?? args.root ?? process.cwd();
 
   if (args.json) {
-    console.log(JSON.stringify({ target, ...report, runnerExceptions: exceptions }, null, 2));
+    // `runnerExceptions` is always [] now (see listRunnerExceptions); kept so the
+    // report shape doesn't change for anything parsing it.
+    console.log(JSON.stringify({ target, ...report, runnerExceptions: [] }, null, 2));
   } else {
-    printHuman(target, report, exceptions);
+    printHuman(target, report);
   }
 
   if (!report.ok && !args.warnOnly) process.exit(1);
@@ -311,16 +299,10 @@ async function defaultBranch(owner, name) {
 
 // ── output ──────────────────────────────────────────────────────────────
 
-function printHuman(target, report, exceptions = []) {
+function printHuman(target, report) {
   console.log(`workspace-config: ${target}`);
-  const printExceptions = () => {
-    for (const e of exceptions) {
-      console.log(`  ℹ️  hosted-runner exception: ${e.file} (${e.runsOn})${e.reason ? ` — ${e.reason}` : ''}`);
-    }
-  };
   if (report.violations.length === 0) {
     console.log('  ✅ conformant — all standard checks pass');
-    printExceptions();
     return;
   }
   for (const v of report.violations) {
@@ -331,7 +313,6 @@ function printHuman(target, report, exceptions = []) {
     }
     console.log(`        fix: ${v.fix}`);
   }
-  printExceptions();
   console.log('');
   console.log(
     `  ${report.errorCount} error(s), ${report.warnCount} warning(s), ${report.passed.length} passed`

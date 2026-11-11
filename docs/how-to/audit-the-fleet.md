@@ -17,7 +17,7 @@ drifting repo.
 
 The `Fleet Config Audit` workflow in protoWorkstacean
 (`.github/workflows/fleet-config-audit.yml`) runs this across `projects.yaml`
-daily on `namespace-profile-protolabs-linux`, writes a summary table, pings
+daily, writes a summary table, pings
 `#alerts` on drift (when `DISCORD_WEBHOOK_ALERTS` is set), and fails the run
 when any repo drifts — so the scheduled status is a live conformance signal.
 

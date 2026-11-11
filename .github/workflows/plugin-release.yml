@@ -21,7 +21,7 @@ on:
   workflow_call:
     inputs:
       runner:
-        description: "Runner label for the release job."
+        description: "Runner label for the release job. Default: ubuntu-latest (GitHub-hosted)."
         required: false
         type: string
         default: ""
@@ -40,7 +40,7 @@ permissions:
 jobs:
   release:
     name: Tag + release notes + Discord
-    runs-on: ${{ inputs.runner || vars.NSC_RUNNER || 'namespace-profile-protolabs-linux' }}
+    runs-on: ${{ inputs.runner || 'ubuntu-latest' }}
     timeout-minutes: 10
     # Serialize releases per calling repo: the tag-exists check and the tag push are
     # separate steps, so two near-simultaneous triggers (a `chore: release` push plus a
