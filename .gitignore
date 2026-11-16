@@ -17,3 +17,6 @@ dist/
 
 # auto-mode runtime lock — never commit (tracking it conflicts every concurrent PR)
 .automaker-lock
+.beads/beads.db-shm
+.beads/beads.db-wal
+.beads/.write.lock
